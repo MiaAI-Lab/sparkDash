@@ -14,6 +14,8 @@ const events: ActivityEvent[] = [
   { id: 1, ts: now - 240_000, type: "spark.online", severity: "info", sparkId: "other-id", sparkName: "Other", message: "Other online" },
 ];
 const clear = vi.fn();
+type Feed = ReturnType<typeof useActivityFeed>;
+let feed: Feed;
 const refresh = vi.fn();
 const writeText = vi.fn().mockResolvedValue(undefined);
 const button = (container: HTMLElement, text: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.trim() === text)!;
@@ -25,11 +27,12 @@ beforeEach(async () => {
   refresh.mockReset();
   writeText.mockClear();
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-  vi.mocked(useActivityFeed).mockReturnValue({
+  feed = {
     events, status: "ready", error: null, reload: vi.fn(), refresh, clear, refreshing: false,
     paused: false, pollError: false, lastUpdated: now, fresh: new Set(), loadOlder: vi.fn(),
     loadingMore: false, moreError: null, reachedOldest: true,
-  });
+  } as Feed;
+  vi.mocked(useActivityFeed).mockReturnValue(feed);
   await act(() => setLocale("en"));
 });
 afterEach(async () => { await act(() => setLocale("en")); vi.restoreAllMocks(); });
@@ -103,4 +106,20 @@ it("updates an open deletion choice and pending result without changing its argu
   await act(() => setLocale("zh-CN"));
   expect(container.textContent).toContain("已删除 2 条事件");
   expect(clear).toHaveBeenCalledTimes(1);
+});
+
+it("formats an older activity day in zh-TW instead of en-US", async () => {
+  const older: ActivityEvent[] = [
+    { id: 9, ts: now - 5 * 86_400_000, type: "spark.online", severity: "info", sparkId: "s", sparkName: "S", message: "S online" },
+  ];
+  vi.mocked(useActivityFeed).mockReturnValue({ ...feed, events: older });
+  const { container } = render(<ActivityPage sparks={[]} />);
+  const head = () => container.querySelector(".ac-day__head")?.textContent ?? "";
+  await act(() => setLocale("zh-TW"));
+  expect(head()).toMatch(/月/);
+  expect(head()).not.toMatch(/[A-Z][a-z]{2} \d/);
+  await act(() => setLocale("zh-CN"));
+  expect(head()).toMatch(/月/);
+  await act(() => setLocale("en"));
+  expect(head()).toMatch(/[A-Z][a-z]{2} \d/);
 });

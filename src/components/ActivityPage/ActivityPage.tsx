@@ -37,7 +37,9 @@ function legacyCopy(text: string): boolean {
 export function ActivityPage({ sparks, onSelectSpark }: { sparks: SparkSnapshot[]; onSelectSpark?: (id: string) => void }) {
   const { t, i18n } = useTranslation("activity");
   const { severityLabels, categoryLabels } = useActivityLabels();
-  const locale = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en-US";
+  const locale = i18n.resolvedLanguage === "zh-TW" ? "zh-TW"
+    : i18n.resolvedLanguage === "zh-CN" ? "zh-CN"
+      : "en-US";
 const ACTIVITY_CLEAR = [
   { id: "7d", label: t("clear.older7d"), ask: t("clear.older7dAsk"), arg: 7 * DAY_MS },
   { id: "24h", label: t("clear.older24h"), ask: t("clear.older24hAsk"), arg: DAY_MS },
