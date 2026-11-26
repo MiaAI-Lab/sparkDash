@@ -550,6 +550,48 @@ test("_applySglangMetrics: prefill = cached + computed, not prompt totals", () =
   assert.equal(probe.cachedPrefillTps, 0);
 });
 
+test("_applySglangMetrics: lifetime cached total is the per-request counter, summed over its disjoint sources", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  // #448: the scheduler's prefill_cache can run below the per-request cached count,
+  // so prompt − prefill_cache over-states computed tokens in Token totals / Cost compare.
+  const body = (cachedDevice, cachedHost, prefillCache, prefillCompute) =>
+    [
+      "sglang:generation_tokens_total 30",
+      "sglang:prompt_tokens_total 10000",
+      `sglang:cached_tokens_total{model_name="m",cache_source="device"} ${cachedDevice}`,
+      `sglang:cached_tokens_total{model_name="m",cache_source="host"} ${cachedHost}`,
+      `sglang:realtime_tokens_total{mode="prefill_compute"} ${prefillCompute}`,
+      `sglang:realtime_tokens_total{mode="prefill_cache"} ${prefillCache}`,
+      "sglang:num_running_reqs 1",
+    ].join("\n") + "\n";
+  probe._applySglangMetrics(body(9500, 400, 9300, 100), 2);
+  // 9500 + 400: device/host/storage split one request's prefix, they are not nested layers
+  assert.equal(probe.totalCachedTokens, 9900);
+  assert.equal(probe.totalPromptTokens, 10000);
+
+  probe._applySglangMetrics(body(9700, 400, 9400, 160), 2);
+  assert.equal(probe.totalCachedTokens, 10100);
+  // live split rates keep following the scheduler's per-mode counters
+  assert.equal(probe.cachedPrefillTps, 50); // (9400-9300)/2
+  assert.equal(probe.uncachedPrefillTps, 30); // (160-100)/2
+});
+
+test("_applySglangMetrics: cached total reads a build's cache_source=\"total\" series too", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  probe._applySglangMetrics(
+    [
+      "sglang:generation_tokens_total 10",
+      "sglang:prompt_tokens_total 1000",
+      'sglang:cached_tokens_total{cache_source="total"} 700',
+      'sglang:realtime_tokens_total{mode="prefill_compute"} 300',
+      'sglang:realtime_tokens_total{mode="prefill_cache"} 650',
+      "sglang:num_running_reqs 0",
+    ].join("\n") + "\n",
+    2
+  );
+  assert.equal(probe.totalCachedTokens, 700);
+});
+
 test("_applySglangMetrics: prompt − cached fallback without per-mode counters", () => {
   const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
   probe._applySglangMetrics(
@@ -935,4 +977,23 @@ test("probe: SGLang without /metrics leaves KV fill unknown, not stale", async (
   assert.equal(snap.kvCacheUsage, null);
   assert.equal(snap.weightsGb, 71.066);
   assert.equal(snap.kvCacheGb, 10.729);
+});
+
+test("_applySglangMetrics: tags the cached total with the counter it came from (#448)", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  const base = [
+    "sglang:generation_tokens_total 10",
+    "sglang:prompt_tokens_total 1000",
+    'sglang:realtime_tokens_total{mode="prefill_compute"} 300',
+    'sglang:realtime_tokens_total{mode="prefill_cache"} 650',
+    "sglang:num_running_reqs 0",
+  ];
+  // Before the first cache hit SGLang has no cached_tokens_total series yet: scheduler counter, tagged as such.
+  probe._applySglangMetrics(base.join("\n") + "\n", 2);
+  assert.equal(probe.totalCachedTokens, 650);
+  assert.equal(probe.totalCachedTokensSource, "sglang:realtime");
+  probe._applySglangMetrics([...base, 'sglang:cached_tokens_total{cache_source="device"} 700'].join("\n") + "\n", 2);
+  assert.equal(probe.totalCachedTokens, 700);
+  assert.equal(probe.totalCachedTokensSource, "sglang:request");
+  assert.equal(probe._getSnapshot().totalCachedTokensSource, "sglang:request");
 });

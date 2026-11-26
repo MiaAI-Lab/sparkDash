@@ -308,6 +308,14 @@ export class LlmProbe {
      */
     this.totalCachedTokens = null;
     /**
+     * Which counter totalCachedTokens was read from, when a backend can switch
+     * between counters of different scale (SGLang: "sglang:request",
+     * "sglang:realtime", "sglang:server-info"). The token ledger re-baselines
+     * the cached counter instead of crediting the jump when it changes (#448).
+     * null for backends with a single cached counter.
+     */
+    this.totalCachedTokensSource = null;
+    /**
      * TensorFold live prompt-position gauge (`tensorfold:prefill_progress_tokens`):
      * tokens of the prompt currently being prefilled. null when the build does not
      * publish it or the last full /metrics scrape failed.
@@ -627,6 +635,7 @@ export class LlmProbe {
     this.totalOutputTokens = 0;
     this.totalPromptTokens = null;
     this.totalCachedTokens = null;
+    this.totalCachedTokensSource = null;
     this.prefillProgressTokens = null;
     this.generationProgressTokens = null;
     this.kvCacheUsage = null;
@@ -2728,6 +2737,7 @@ export class LlmProbe {
    */
   _cacheRestarted() {
     this.totalCachedTokens = null;
+    this.totalCachedTokensSource = null;
     this.prefixCacheHitRate = null;
     this._tensorfoldSeeded = false;
     this._tensorfoldPrevCached = null;
@@ -3535,7 +3545,10 @@ export class LlmProbe {
         this.lastTokenCounts.output = output;
         this.totalOutputTokens = output;
         this.totalPromptTokens = input;
-        if (sgCached != null) this.totalCachedTokens = sgCached;
+        if (sgCached != null) {
+          this.totalCachedTokens = sgCached;
+          this.totalCachedTokensSource = "sglang:server-info";
+        }
         this._sglangTotalsPolled = true;
         this._sglangTokenSource = "server_info";
         if (seeded && dtSec > 0 && dtSec < 10) {
@@ -3865,9 +3878,9 @@ export class LlmProbe {
     this._sglangTokenSource = "prometheus";
     this.totalOutputTokens = gen;
     this.totalPromptTokens = prompt ?? null;
-    // Cached share from the same exposition (device layer preferred).
-    const cachedNow = this._sglangCachedTokens(txt);
-    if (cachedNow != null) this.totalCachedTokens = cachedNow;
+    // Lifetime cached share for the token ledger: the per-request counter (see
+    // _sglangRequestCachedTokens), not the scheduler's per-chunk prefill_cache.
+    this._setSglangCachedTotal(txt, this._sglangCachedTokens(txt));
 
     // The tile reads cache-served + computed; the split rows below show the
     // two parts. Poll-window rates, not latches: a window that prefilled
@@ -3888,15 +3901,50 @@ export class LlmProbe {
 
   /**
    * Cache split only — does not touch generation/prefill lastTokenCounts.
-   * Prefers cache_source="device" so HiCache L1/L2/L3 labels are not summed.
+   * Rates use the scheduler's per-mode counters; the lifetime total uses the
+   * per-request counter summed over its disjoint cache_source series.
    */
   _applySglangPrefillSplit(txt, dtSec) {
     const compute = this._sglangPrefillComputeTokens(txt);
     const cached = this._sglangCachedTokens(txt);
-    if (cached != null) this.totalCachedTokens = cached;
+    this._setSglangCachedTotal(txt, cached);
     if (compute != null && cached != null) {
       this._setPrefillSplitRates(cached, compute, dtSec);
     }
+  }
+
+  /**
+   * Lifetime cache-served prompt tokens for Token totals / Cost compare:
+   * `sglang:cached_tokens_total` summed over every series. SGLang splits each
+   * request's cached prefix into DISJOINT device / host / storage parts
+   * (split_cached_prefix_by_tier), or writes one cache_source="total" series
+   * when a build reports no breakdown, so the sum is exactly the per-request
+   * `usage.prompt_tokens_details.cached_tokens` clients receive, and
+   * prompt − it equals realtime_tokens_total{mode="prefill_compute"}.
+   * The scheduler-side realtime{mode="prefill_cache"} counts prefix hits as
+   * prefill chunks are admitted; on long agent sessions it ran ~5 % of prompt
+   * tokens below the per-request count, so those cache hits were shown and
+   * priced as computed prompt tokens (#448). It stays the source for the live
+   * cached/uncached prefill tok/s split.
+   * @param {string} txt
+   * @returns {number | null}
+   */
+  _setSglangCachedTotal(txt, fallback) {
+    const perRequest = this._sglangRequestCachedTokens(txt);
+    if (perRequest != null) {
+      this.totalCachedTokens = perRequest;
+      this.totalCachedTokensSource = "sglang:request";
+    } else if (fallback != null) {
+      this.totalCachedTokens = fallback;
+      this.totalCachedTokensSource = "sglang:realtime";
+    }
+  }
+
+  _sglangRequestCachedTokens(txt) {
+    return (
+      this._getPromMetric(txt, "sglang:cached_tokens_total") ??
+      this._getPromMetric(txt, "sglang_cached_tokens_total")
+    );
   }
 
   _sglangCachedTokens(txt) {
@@ -4368,6 +4416,7 @@ export class LlmProbe {
       totalOutputTokens: this.totalOutputTokens,
       totalPromptTokens: this.totalPromptTokens ?? null,
       totalCachedTokens: this.totalCachedTokens ?? null,
+      totalCachedTokensSource: this.totalCachedTokensSource ?? null,
       prefillProgressTokens: this.backendType === "tensorfold" ? this.prefillProgressTokens ?? null : null,
       generationProgressTokens: this.backendType === "tensorfold" ? this.generationProgressTokens ?? null : null,
       kvCacheUsage: this.kvCacheUsage,
@@ -4420,6 +4469,7 @@ export class LlmProbe {
       uncachedPrefillTps: null,
       totalOutputTokens: 0,
       totalCachedTokens: null,
+      totalCachedTokensSource: null,
       prefillProgressTokens: null,
       generationProgressTokens: null,
       kvCacheUsage: null,
