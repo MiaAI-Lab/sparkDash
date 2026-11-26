@@ -2,5 +2,6 @@
   "title": "Language",
   "help": "Applies instantly to translated pages on this device. Saved in this browser.",
   "english": "English",
-  "simplifiedChinese": "简体中文"
+  "simplifiedChinese": "简体中文",
+  "traditionalChinese": "繁體中文"
 }

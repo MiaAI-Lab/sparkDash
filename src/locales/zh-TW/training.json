@@ -1,0 +1,39 @@
+{
+  "title": "訓練進度",
+  "subtitle": "工作節點回報的階段、計數與剩餘時間。唯讀。",
+  "loading": "載入進度中…",
+  "empty": "設定的根目錄中沒有可用的進度文件。",
+  "disabled": "此伺服器已停用訓練進度。",
+  "truncated": "快照已達收集上限；部分文件未顯示。",
+  "unknown": "未知",
+  "reportedAt": "回報時間：{{time}}",
+  "lastState": "上次回報：{{state}}",
+  "progress": "{{completed}} / {{total}}",
+  "reportedEta": "回報的剩餘時間：{{seconds}} 秒",
+  "errors": {
+    "load": "無法載入訓練進度，將自動重試。",
+    "stale": "無法重新整理進度。最後收到的回報會以過期狀態顯示。",
+    "configuration": "設定：{{error}}"
+  },
+  "unit": {
+    "unavailable": "無法收集",
+    "unsupported": "不支援收集",
+    "partial": "部分收集"
+  },
+  "source": {
+    "live": "工作節點的最新回報",
+    "stale": "過期回報"
+  },
+  "groups": {
+    "data": "資料準備",
+    "training": "訓練",
+    "evaluation": "評估"
+  },
+  "states": {
+    "running": "執行中",
+    "waiting": "等待中",
+    "complete": "已完成",
+    "stopped": "已停止",
+    "failed": "失敗"
+  }
+}

@@ -2,5 +2,6 @@
   "title": "语言",
   "help": "立即应用于此设备已翻译的页面，并保存在此浏览器中。",
   "english": "English",
-  "simplifiedChinese": "简体中文"
+  "simplifiedChinese": "简体中文",
+  "traditionalChinese": "繁體中文"
 }
