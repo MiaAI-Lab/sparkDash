@@ -20,7 +20,8 @@
     "openSearch": "開啟命令選擇區",
     "showSidebar": "顯示側邊欄",
     "showSidebarTitle": "顯示側邊欄（Ctrl+B）",
-    "apiKeys": "API 金鑰"
+    "apiKeys": "API 金鑰",
+    "training": "訓練"
   },
   "sidebar": {
     "sortable": "可排序",

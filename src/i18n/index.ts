@@ -44,6 +44,7 @@ import zhShowcase from "../locales/zh-CN/showcase.json";
 import zhTWShowcase from "../locales/zh-TW/showcase.json";
 import enTraining from "../locales/en/training.json";
 import zhTraining from "../locales/zh-CN/training.json";
+import zhTWTraining from "../locales/zh-TW/training.json";
 import enApiKeys from "../locales/en/apiKeys.json";
 import zhApiKeys from "../locales/zh-CN/apiKeys.json";
 import zhTWApiKeys from "../locales/zh-TW/apiKeys.json";
@@ -78,7 +79,7 @@ void i18n.use(initReactI18next).init({
   resources: {
     en: { settings: enSettings, language: enLanguage, shell: enShell, overview: enOverview, spark: enSpark, activity: enActivity, statistics: enStatistics, devices: enDevices, hardware: enHardware, shareCards: enShareCards, toolMessages: enToolMessages, tooleval: enTooleval, benchmarks: enBenchmarks, showcase: enShowcase, apiKeys: enApiKeys, training: enTraining, storage: enStorage },
     "zh-CN": { settings: zhSettings, language: zhLanguage, shell: zhShell, overview: zhOverview, spark: zhSpark, activity: zhActivity, statistics: zhStatistics, devices: zhDevices, hardware: zhHardware, shareCards: zhShareCards, toolMessages: zhToolMessages, tooleval: zhTooleval, benchmarks: zhBenchmarks, showcase: zhShowcase, apiKeys: zhApiKeys, training: zhTraining, storage: zhStorage },
-    "zh-TW": { settings: zhTWSettings, language: zhTWLanguage, shell: zhTWShell, overview: zhTWOverview, spark: zhTWSpark, activity: zhTWActivity, statistics: zhTWStatistics, devices: zhTWDevices, hardware: zhTWHardware, shareCards: zhTWShareCards, toolMessages: zhTWToolMessages, tooleval: zhTWTooleval, benchmarks: zhTWBenchmarks, showcase: zhTWShowcase, apiKeys: zhTWApiKeys, storage: zhTWStorage },
+    "zh-TW": { settings: zhTWSettings, language: zhTWLanguage, shell: zhTWShell, overview: zhTWOverview, spark: zhTWSpark, activity: zhTWActivity, statistics: zhTWStatistics, devices: zhTWDevices, hardware: zhTWHardware, shareCards: zhTWShareCards, toolMessages: zhTWToolMessages, tooleval: zhTWTooleval, benchmarks: zhTWBenchmarks, showcase: zhTWShowcase, apiKeys: zhTWApiKeys, training: zhTWTraining, storage: zhTWStorage },
   },
   lng: detectLocale(),
   fallbackLng: "en",

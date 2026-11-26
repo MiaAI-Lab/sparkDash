@@ -108,7 +108,9 @@
     "pcieBest": "最高 {{link}}",
     "throttleReasons": "降頻原因",
     "throttleNone": "無",
-    "clockLocked": "時脈已鎖定 ≤ {{mhz}} MHz"
+    "clockLocked": "時脈已鎖定 ≤ {{mhz}} MHz",
+    "thermalPressureLastRecorded": "溫度壓力（最近一次記錄）",
+    "thermalPressureUnknown": "未知"
   },
   "gpuChart": {
     "combined": "合併",
@@ -264,7 +266,8 @@
     "completedPrefillHelp": "同一視窗內已完成請求的 token 與預填充時間差值；並非持續的即時吞吐量。",
     "effectiveIncludesCached": "有效速率 · 含快取 token",
     "completedPrefillSplit": "已計算 token · 不含快取",
-    "completedDecodeRate": "{{rate}} tok/s · 最近完成"
+    "completedDecodeRate": "{{rate}} tok/s · 最近完成",
+    "engineGeneratedWithCount": "{{value}} 個 token · {{help}}"
   },
   "sessions": {
     "title": "工作階段",
@@ -344,5 +347,54 @@
       "uncachedPrefill": "未快取預填充峰值 {{peak}} tok/s（平均 {{average}}）",
       "cachedPrefill": "快取預填充峰值 {{peak}} tok/s（平均 {{average}}）"
     }
+  },
+  "llmCache": {
+    "title": "共用快取集區",
+    "active": "使用中",
+    "keptPrefixes": "保留的前綴",
+    "reclaimableGrowth": "可回收成長",
+    "unclaimed": "未分配",
+    "segmentSummary": "{{label}} {{value}}／{{capacity}}",
+    "poolSummary": "共用集區的位置分佈：{{summary}}",
+    "unavailable": "無法使用",
+    "noTelemetry": "此引擎版本不會回報快取遙測。集區與快照數據一律顯示為無法使用，也不會以每個串流的 KV 比例代替。",
+    "inconsistentReason": "引擎回報的快取統計不一致（{{reason}}），因此這次觀測不顯示任何數值。",
+    "inconsistent": "引擎回報的快取統計不一致，因此這次觀測不顯示任何數值。",
+    "unsupported": "快取遙測 schema {{version}} 比此儀表板能讀取的版本新，因此不顯示任何數值。",
+    "unknown": "未知",
+    "unreadable": "這次輪詢無法讀取快取資料。",
+    "keepFailures": "保留 {{value}}",
+    "restoreFailures": "還原 {{value}}",
+    "forgetFailures": "對端遺忘 {{value}}",
+    "activeShare": "{{value}} 使用中",
+    "partial": "部分回報",
+    "poolPositions": "集區位置",
+    "perRequest": "每個請求",
+    "streams": "串流數",
+    "reused": "累計重用率",
+    "reusedHelp": "自引擎啟動以來，從前綴快取還原的提示詞 token 佔全部提示詞 token 的比例。近期走勢請見歷史圖表。",
+    "poolMissingFields": "引擎在這次觀測中未回報共用集區（缺少：{{fields}}）。",
+    "poolMissing": "引擎在這次觀測中未回報共用集區。",
+    "detail": "快取明細",
+    "snapshotStore": "快照儲存區",
+    "storeSummary": "已佔用 {{held}}／{{budget}} · 剩餘 {{spare}} · {{entries}} 個狀態",
+    "storeDisabled": "本次啟動已停用",
+    "notReported": "未回報",
+    "validStates": "有效的保留狀態",
+    "invalidated": "集區失效",
+    "invalidatedHelp": "資料列已被後續放置重複使用的保留前綴（自引擎啟動以來累計）。這類前綴日後若要恢復，必須重新處理；這不算請求失敗。",
+    "invalidatedCount": "{{value}} 個前綴",
+    "placementsRefused": "放置遭拒",
+    "placementsRefusedHelp": "因空間不足而無法完成的預留 — 與使保留前綴失效不同。",
+    "churn": "快照汰換",
+    "churnSummary": "已逐出 {{evicted}} · 已拒絕 {{refused}}（過大）",
+    "lookups": "快照查詢",
+    "lookupsSummary": "命中 {{hits}} · 未命中 {{misses}}",
+    "failures": "快照失敗",
+    "failuresHelp": "若此引擎版本會分類，保留／還原／對端遺忘各階段會拆開舊版合計的失敗數。",
+    "epoch": "引擎世代",
+    "epochHelp": "產生這次觀測的引擎行程身分；一旦變更，計數器就會重設。",
+    "history": "快取歷史",
+    "historyHelp": "顯示近期的重用視窗、集區分類、汰換與延遲隨時間的變化。"
   }
 }

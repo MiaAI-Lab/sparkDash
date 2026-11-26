@@ -205,7 +205,7 @@
     "stopsByItselfIn_other": "會在 {{count}} 分鐘後自行停止",
     "stopsByItself": "會自行停止",
     "stopBestEffortTitle": "儀表板在容器中執行時，中止只能盡力而為",
-    "stopping": "中止中…",
+    "stopping": "停止中…",
     "tryStopAgain": "再次嘗試中止",
     "stop": "中止掃描",
     "stoppingAnalysis": "正在中止分析：",

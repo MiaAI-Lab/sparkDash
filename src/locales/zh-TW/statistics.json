@@ -445,6 +445,10 @@
     "subtitleMetered": "由 {{meter}} 在電源端實測。",
     "currentPowerFilled": "30 秒平均值，部分以估算補足",
     "gpu": "GPU",
-    "cpu": "CPU"
+    "cpu": "CPU",
+    "externalMeters": "外接電表",
+    "filledShare": "{{percent}} 以估算補足",
+    "powerLines": "功耗曲線",
+    "wallLine": "電源端"
   }
 }

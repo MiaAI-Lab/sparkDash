@@ -208,7 +208,12 @@
     "gpuPowerShort": "功耗",
     "workerHeadCompletedDecode": " · {{value}} 已完成",
     "workerHeadCompletedPrefill": " · {{value}} 預填充（含快取）",
-    "completedDecodeRate": "{{value}} tok/s · 已完成"
+    "completedDecodeRate": "{{value}} tok/s · 已完成",
+    "macPower": "{{gpu}} W · 系統 {{system}} W",
+    "cacheChip": "{{active}}% 使用中 · {{kept}}% 保留",
+    "cacheChipTitle": "共用集區 {{capacity}} 個位置，每個請求 {{context}} 個，{{streams}} 個串流；快照儲存區 {{store}}",
+    "cacheStoreBytes": "{{held}}／{{budget}} 位元組",
+    "cacheStoreUnreported": "未回報"
   },
   "launcher": {
     "modelsUnavailable": "模型無法使用",
@@ -269,7 +274,15 @@
   },
   "health": {
     "findings": "健康檢查發現",
-    "more": "+{{count}} 項"
+    "more": "+{{count}} 項",
+    "warning": "警告",
+    "critical": "嚴重",
+    "thermal": {
+      "warningTitle": "GPU 溫度偏高",
+      "criticalTitle": "GPU 溫度已接近關機溫度",
+      "detail": "{{current}}°C（{{warning}}°C 起警告，{{critical}}°C 起嚴重）。",
+      "hint": "請檢查風流與室溫，並確認通風口沒有被擋住。若溫度持續上升，請降低功耗上限或減少負載。"
+    }
   },
   "kpis": {
     "fleetDecode": "機群解碼",
