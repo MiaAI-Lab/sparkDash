@@ -30,7 +30,7 @@ const SNAPSHOT_TTL_MS = 1500;
  * or its privileged collector starts takes 7–10s, and the agent joins that
  * collect for up to 12s before it will say "pending".
  */
-export const FETCH_TIMEOUT_MS = 4000;
+export const FETCH_TIMEOUT_MS = 8000;
 
 /**
  * First runtimes probe budget. Covers the observed 7–10s cold response and
@@ -337,8 +337,8 @@ export class MacAgentCollector extends MacSystemCollector {
       total: disk.total ?? 0,
       available: disk.available ?? 0,
       percentage: disk.percentage ?? 0,
-      readSpeed: 0,
-      writeSpeed: 0,
+      readSpeed: disk.readSpeed ?? 0,
+      writeSpeed: disk.writeSpeed ?? 0,
       disabled: disabled.includes(disk.device) || disabled.includes(disk.label),
     }));
   }
