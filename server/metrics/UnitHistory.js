@@ -416,6 +416,7 @@ export class UnitHistory {
       return;
     }
     const atMs = this._now();
+    let migrated = false;
     for (const [id, tiers] of Object.entries(state.units)) {
       if (!tiers || typeof tiers !== "object") continue;
       const unit = newUnit();
@@ -455,8 +456,62 @@ export class UnitHistory {
       };
       loadTiers(BUCKET_TIERS, unit.tiers, false);
       loadTiers(LLM_BUCKET_TIERS, unit.llmTiers, true);
+      // Before LLM endpoints had their own tiers, their raw series lived in the
+      // unit's 1m/15m tiers. Move those into 5m/1h (coarsening the buckets) so an
+      // upgrade does not silently drop the LLM history. Derived series are not
+      // known keys anymore and are ignored; they are recomputed at query time.
+      const migrateOldLlm = (fromSpec, toSpec, toIdx) => {
+        const fromTier = tiers[fromSpec.name];
+        if (!fromTier || !Array.isArray(fromTier.t) || !fromTier.series || typeof fromTier.series !== "object") return;
+        const toTier = tiers[toSpec.name];
+        const existing = new Set(
+          toTier?.series && typeof toTier.series === "object"
+            ? Object.keys(toTier.series).filter((key) => parseLlmKey(key) !== null)
+            : []
+        );
+        const cols = Object.entries(fromTier.series).filter(([key, col]) => {
+          if (!isKnownKey(key) || !col || parseLlmKey(key) === null) return false;
+          return !existing.has(key);
+        });
+        if (cols.length === 0) return;
+        const cutoff = atMs - toSpec.retentionMs;
+        const buckets = new Map();
+        fromTier.t.forEach((t, i) => {
+          if (!finite(t) || t < cutoff) return;
+          const bucketT = Math.floor(t / toSpec.stepMs) * toSpec.stepMs;
+          let stats = buckets.get(bucketT);
+          if (!stats) {
+            stats = new Map();
+            buckets.set(bucketT, stats);
+          }
+          for (const [key, col] of cols) {
+            const n = col.n?.[i];
+            const avg = col.avg?.[i];
+            const max = col.max?.[i];
+            if (!(Number.isInteger(n) && n > 0) || !finite(avg) || !finite(max)) continue;
+            const min = finite(col.min?.[i]) ? col.min[i] : avg;
+            const stat = { sum: avg * n, max, min, n };
+            const activeCount = col.activeCount?.[i];
+            if (keepsActiveCount(key) && Number.isInteger(activeCount) && activeCount >= 0 && activeCount <= n && avg >= 0) {
+              stat.activeCount = activeCount;
+            }
+            addToStats(stats, key, stat);
+          }
+        });
+        for (const [t, stats] of buckets) {
+          if (stats.size > 0) {
+            unit.llmTiers[toIdx].ring.put(t, stats);
+            any = true;
+            migrated = true;
+          }
+        }
+      };
+      migrateOldLlm(BUCKET_TIERS[0], LLM_BUCKET_TIERS[0], 0);
+      migrateOldLlm(BUCKET_TIERS[1], LLM_BUCKET_TIERS[1], 1);
       if (any) this._units.set(id, unit);
     }
+    // A migrated file is in the old layout; make the next save rewrite it.
+    if (migrated) this._tiersRev++;
   }
 
   /** Close open buckets whose period has ended by `atMs`. */

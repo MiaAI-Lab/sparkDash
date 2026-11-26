@@ -524,6 +524,56 @@ test("save() yields between units instead of serializing the fleet in one turn",
   assert.equal(yields, 3);
 });
 
+test("old LLM series in the unit tiers migrate into the 5m/1h tiers", (t) => {
+  const tiersFile = path.join(tmpDir(t), "metrics-history.json");
+  const s = store({ tiersFile });
+  rec(
+    s,
+    T0,
+    {
+      gpuUtil: 5,
+      [llmKey(8888, "genTps")]: 40,
+      [llmKey(8888, "requestsRunning")]: 2,
+      [llmKey(8888, "requestsWaiting")]: 1,
+      [llmKey(8888, "ttftTime")]: 10,
+      [llmKey(8888, "prefillSeconds")]: 3,
+      [llmKey(8888, "decodeSeconds")]: 4,
+      [llmKey(8888, "latencyTime")]: 16,
+    },
+    { llmPorts: [8888] }
+  );
+  s.flush();
+
+  // Simulate a file written before LLM endpoints had their own tiers: move the
+  // LLM columns back into 1m/15m and add an old derived column.
+  const saved = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
+  const moveLlm = (from, to) => {
+    for (const [key, col] of Object.entries(saved.units.a[from].series)) {
+      if (key.startsWith("llm:")) saved.units.a[to].series[key] = col;
+    }
+    delete saved.units.a[from];
+  };
+  moveLlm("5m", "1m");
+  moveLlm("1h", "15m");
+  saved.units.a["1m"].series[llmKey(8888, "queueWait")] = { avg: [7], max: [7], n: [1] };
+  fs.writeFileSync(tiersFile, JSON.stringify(saved));
+
+  const reopened = store({ tiersFile, at: T0 + 60_000 });
+  const [point] = reopened.query("a", "1h", T0 + 60_000, { withCounts: true }).llm[0].points;
+  assert.equal(point.genTps.avg, 40);
+  assert.equal(point.requestsRunning.avg, 2);
+  // Derived from the migrated raw inputs, not from the old derived column.
+  assert.equal(point.queueWait.avg, 7);
+
+  reopened.flush();
+  const out = JSON.parse(fs.readFileSync(tiersFile, "utf8"));
+  assert.equal(Object.keys(out.units.a["1m"].series).some((k) => k.startsWith("llm:")), false);
+  assert.equal(Object.keys(out.units.a["15m"].series).some((k) => k.startsWith("llm:")), false);
+  assert.ok(Object.keys(out.units.a["5m"].series).includes(llmKey(8888, "genTps")));
+  assert.ok(Object.keys(out.units.a["1h"].series).includes(llmKey(8888, "genTps")));
+  assert.equal(Object.keys(out.units.a["1m"].series).includes(llmKey(8888, "queueWait")), false);
+});
+
 test("removed units and LLM ports are dropped on the next save", (t) => {
   const tiersFile = path.join(tmpDir(t), "metrics-history.json");
   const s = store({ tiersFile });
