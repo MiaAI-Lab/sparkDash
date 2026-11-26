@@ -3086,9 +3086,9 @@ export class LlmProbe {
     this.generationProgressTokens = null;
     // A failed scrape must not keep stale pair or per-rank readings.
     this.cluster = null;
-    // Queue-only polls deliberately do not read these counters; a full scrape
-    // clears them first so a missing one reports unknown instead of stale.
-    if (!queueOnly) this._clearCumulativeCounters();
+    // Clear first: a scrape that answers without a counter (including a
+    // queue-only poll) reports unknown, not the previous poll's value.
+    this._clearCumulativeCounters();
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);

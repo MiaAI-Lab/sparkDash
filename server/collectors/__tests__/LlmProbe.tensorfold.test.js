@@ -403,10 +403,10 @@ test("_applyTensorFoldMetrics clears cumulative counters a scrape omits", async 
     assert.equal(probe[name], null, `${name} must be unknown, not the previous scrape`);
   }
 
-  // A queue-only poll deliberately does not read counters; it must keep them.
+  // A queue-only poll does not read them either: unknown, not stale.
   Object.assign(probe, fields);
   await probe._applyTensorFoldMetrics(undefined, true);
-  assert.equal(probe.prefillSecondsTotal, 1);
+  assert.equal(probe.prefillSecondsTotal, null);
 });
 
 test("probe: TensorFold with cumulative counters in /health reads only the queue from /metrics", async () => {
