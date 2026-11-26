@@ -82,6 +82,11 @@ export interface HistoryChartSeries {
   values: ReadonlyArray<HistoryStat | null>;
   /** Faint band from the avg line to the bucket max — or min, for headroom. */
   band?: "max" | "min";
+  /**
+   * A secondary absolute reading of a plotted value, shown after the corner readout and
+   * in the tooltip row (the KV chart's pool tokens). Null hides it.
+   */
+  tokens?: (value: number) => string | null;
 }
 
 export interface HistoryThreshold {
@@ -309,10 +314,12 @@ export function HistoryChart({
         <span className="sp-hist-chart__readouts mono" style={{ flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
           {series.map((s) => {
             const v = readIdx != null ? s.values[readIdx] : null;
+            const tokens = v ? s.tokens?.(v.avg) : null;
             return (
               <span key={s.key} className="sp-hist-chart__readout" data-readout={s.key}>
                 {series.length > 1 && <small>{s.label}</small>}
                 <b style={{ color: s.color }}>{v ? format(v.avg) : "—"}</b>
+                {tokens && <small data-tokens="">{tokens}</small>}
               </span>
             );
           })}
@@ -508,11 +515,12 @@ export function HistoryChart({
               <b>{formatTime(timeline[cursorIdx])}</b>
               {series.map((s) => {
                 const v = s.values[cursorIdx];
+                const tokens = v ? s.tokens?.(v.avg) : null;
                 return (
                   <div key={s.key} className="chart__tip-row">
                     <i style={{ background: s.color }} />
                     {s.label}
-                    <em>{v ? format(v.avg) : "—"}</em>
+                    <em>{v ? format(v.avg) : "—"}{tokens ? ` · ${tokens}` : ""}</em>
                   </div>
                 );
               })}

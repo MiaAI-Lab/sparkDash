@@ -1,3 +1,4 @@
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, render } from "../../testing/render";
 import { makeSpark } from "../../testing/fixtures";
@@ -29,7 +30,8 @@ import { SparkPage } from "./SparkPage";
 
 beforeEach(() => {
   localStorage.clear();
-  vi.mocked(getUnitHistory).mockClear();
+  vi.mocked(getUnitHistory).mockReset();
+  vi.mocked(getUnitHistory).mockResolvedValue({ enabled: false });
 });
 
 describe("SparkPage History panel", () => {
@@ -59,5 +61,33 @@ describe("SparkPage History panel", () => {
     expect(panel.querySelector(".panel-title")!.textContent).toContain("History · last hour");
     expect(getUnitHistory).toHaveBeenCalledWith("spark-1", "1h");
     expect(container.textContent).toContain("Metrics history is off on the server");
+  });
+
+  it("passes liveLlm to HistoryPanel only when the unit is online and LLM monitoring is enabled", async () => {
+    vi.mocked(getUnitHistory).mockResolvedValue({
+      enabled: true,
+      range: "1h",
+      stepMs: 60_000,
+      from: 0,
+      to: 60_000,
+      points: [{ t: 0, gpuUtil: { avg: 10, max: 10 } }],
+      llm: [{ port: 8888, points: [{ t: 0, kvUsage: { avg: 0.25, max: 0.25 } }] }],
+    });
+    const base = makeSpark();
+    const liveLlm = [{ ...base.metrics.llm[0], port: 8888, kvCacheTokens: 6_291_456, kvCacheUsageBasis: "pool" as const }];
+    const online = { ...base, online: true, llmMonitoring: true, metrics: { ...base.metrics, llm: liveLlm } };
+    const { container, root } = render(<SparkPage spark={online} temperatureUnit="celsius" metricsHistory />);
+    await flush();
+    expect(container.querySelector('[data-chart="llm-8888-kv"] [data-tokens]')?.textContent).toBe("1.6M / 6.3M tok (at current pool size)");
+
+    const offline = { ...online, online: false };
+    act(() => root.render(<SparkPage spark={offline} temperatureUnit="celsius" metricsHistory />));
+    await flush();
+    expect(container.querySelector('[data-chart="llm-8888-kv"] [data-tokens]')).toBeNull();
+
+    const llmOff = { ...online, llmMonitoring: false };
+    act(() => root.render(<SparkPage spark={llmOff} temperatureUnit="celsius" metricsHistory />));
+    await flush();
+    expect(container.querySelector('[data-chart="llm-8888-kv"] [data-tokens]')).toBeNull();
   });
 });
