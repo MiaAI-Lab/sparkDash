@@ -359,6 +359,54 @@ test("probe: a decode rate reported in /health is not replaced by the /metrics c
   const snap = await probe.probe();
   assert.equal(snap.totalOutputTokens, 5000);
   assert.equal(snap.generationTps, 33.5);
+  // /health's live decode is authoritative; the counterless /metrics scrape
+  // must not turn the same poll into a prefill.
+  assert.equal(probe.decodeActive, true);
+  assert.equal(probe.prefillActive, false);
+});
+
+test("_applyTensorFoldMetrics clears cumulative counters a scrape omits", async () => {
+  const probe = new LlmProbe({ lanIp: "192.0.2.10" }, 8888);
+  const fields = {
+    prefillSecondsTotal: 1,
+    prefillCountTotal: 2,
+    decodeSecondsTotal: 3,
+    decodeCountTotal: 4,
+    ttftSecondsTotal: 5,
+    ttftCountTotal: 6,
+    latencySecondsTotal: 7,
+    latencyCountTotal: 8,
+    tpotSecondsTotal: 9,
+    tpotCountTotal: 10,
+    decodeRoundsTotal: 11,
+    prefixCacheQueriesTotal: 12,
+    prefixCacheHitsTotal: 13,
+    mtpDraftedTotal: 14,
+    mtpAcceptedTotal: 15,
+    deviceMemoryBytes: 16,
+    deviceMemoryPeakBytes: 17,
+    clientDisconnectionsTotal: 18,
+    requestLatencySeconds: 19,
+    prefillP95Seconds: 20,
+    decodeP95Seconds: 21,
+  };
+  Object.assign(probe, fields);
+  probe._fetch = async (url) => {
+    if (String(url).endsWith("/metrics")) {
+      const txt = "tensorfold:requests_running 1\ntensorfold:requests_waiting 0\n";
+      return { ok: true, status: 200, text: async () => txt, json: async () => ({}) };
+    }
+    return notFound();
+  };
+  await probe._applyTensorFoldMetrics(2);
+  for (const name of Object.keys(fields)) {
+    assert.equal(probe[name], null, `${name} must be unknown, not the previous scrape`);
+  }
+
+  // A queue-only poll deliberately does not read counters; it must keep them.
+  Object.assign(probe, fields);
+  await probe._applyTensorFoldMetrics(undefined, true);
+  assert.equal(probe.prefillSecondsTotal, 1);
 });
 
 test("probe: TensorFold with cumulative counters in /health reads only the queue from /metrics", async () => {

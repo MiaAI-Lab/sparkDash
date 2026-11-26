@@ -627,6 +627,35 @@ export class LlmProbe {
     this._seedNext = true;
   }
 
+  /**
+   * Clear the cumulative counters that only a full /metrics scrape refreshes.
+   * A scrape that answers without one of them must report unknown, not repeat
+   * the previous poll's value.
+   */
+  _clearCumulativeCounters() {
+    this.prefillSecondsTotal = null;
+    this.prefillCountTotal = null;
+    this.decodeSecondsTotal = null;
+    this.decodeCountTotal = null;
+    this.ttftSecondsTotal = null;
+    this.ttftCountTotal = null;
+    this.latencySecondsTotal = null;
+    this.latencyCountTotal = null;
+    this.tpotSecondsTotal = null;
+    this.tpotCountTotal = null;
+    this.decodeRoundsTotal = null;
+    this.prefixCacheQueriesTotal = null;
+    this.prefixCacheHitsTotal = null;
+    this.mtpDraftedTotal = null;
+    this.mtpAcceptedTotal = null;
+    this.deviceMemoryBytes = null;
+    this.deviceMemoryPeakBytes = null;
+    this.clientDisconnectionsTotal = null;
+    this.requestLatencySeconds = null;
+    this.prefillP95Seconds = null;
+    this.decodeP95Seconds = null;
+  }
+
   _resetDetection() {
     this._dropEngineProbe();
     this.serverIsOpenAI = null;
@@ -2587,7 +2616,13 @@ export class LlmProbe {
     };
     const decode = rate(live.decode_tokens_per_second);
     const prefill = rate(live.prefill_tokens_per_second);
-    if (decode != null) this.generationTps = decode;
+    if (decode != null) {
+      this.generationTps = decode;
+      // The live rate is the /health decode state; the counter scrape below
+      // must preserve it when the engine reports one.
+      this.decodeActive = decode > 0;
+      if (decode > 0) this.prefillActive = false;
+    }
     if (prefill != null) this.prefillTps = prefill;
     if (prefill > 0) this.prefillTpsSource = "live";
     const waiting = live.waiting == null ? NaN : Number(live.waiting);
@@ -3051,6 +3086,9 @@ export class LlmProbe {
     this.generationProgressTokens = null;
     // A failed scrape must not keep stale pair or per-rank readings.
     this.cluster = null;
+    // Queue-only polls deliberately do not read these counters; a full scrape
+    // clears them first so a missing one reports unknown instead of stale.
+    if (!queueOnly) this._clearCumulativeCounters();
     let txt;
     try {
       const res = await this._fetch(`${this.baseUrl}/metrics`);
@@ -3399,12 +3437,12 @@ export class LlmProbe {
           }
         }
       }
-      // The only live prefill signal this build has: a request is open and no
-      // decode has been produced yet. (Queue-only waits keep running at 0.)
+      // Without a /health live decode rate, this poll's counters are the only
+      // decode signal: a request is open and tokens are moving. When /health
+      // published a live rate, preserve its decode/prefill state instead.
       const openReq = Number.isFinite(this.requestsRunning) && this.requestsRunning > 0;
       const genRunning = m("generation_tokens_running");
-      if (openReq) {
-        // /health is only {"status":"ok"}; decode comes from this poll's counters.
+      if (openReq && !preserveLiveDecode) {
         const decoding = Number.isFinite(this.generationTps) && this.generationTps > 0;
         this.decodeActive = decoding;
         // A lane with no generated tokens, or a live prompt position, means prefill.
@@ -3496,6 +3534,9 @@ export class LlmProbe {
   }
 
   _applyVllmMetrics(txt, dtSec) {
+    // Optional counters are absent on some builds: clear first so a missing
+    // series is unknown this poll, not the previous poll's value.
+    this._clearCumulativeCounters();
     const promptTokens = this._getVllmMetric(txt, "prompt_tokens_total");
     const genTokens = this._getVllmMetric(txt, "generation_tokens_total");
     const running = this._getVllmMetric(txt, "num_requests_running");
