@@ -269,6 +269,7 @@ async function calibrateOverhead({ baseUrl, modelId, abortSignal, apiKey }) {
  *  - durationMs is total wall time over every attempted sample, failures included.
  *  - samples = successful samples, samplesRequested = what the size asked for; samples <
  *    samplesRequested means the row is partial and `notice` says why.
+ *  - sampleMeasurements contains successful measurements in request order.
  *  - error is set only when no sample succeeded; it always carries a reason.
  *  - lowConfidence: any counted sample leaned heavily on the overhead calibration.
  * @param {(i: number, n: number) => void} [onSample]
@@ -316,12 +317,26 @@ export async function runPrefillMeasured(opts, overheadMs, onSample, sampleFn = 
       cachedTokens: lastErr?.cachedTokens ?? 0,
       samples: 0,
       samplesRequested: repeats,
+      sampleMeasurements: [],
       lowConfidence: false,
       overheadMs,
       durationMs: round2(totalDurationMs),
       error: lastErr ? lastErr.error || "No first token" : "Cancelled",
     };
   }
+  const sampleMeasurements = good.map(({ sample, tps, method, lowConfidence }) => ({
+    prefillTps: tps,
+    method,
+    lowConfidence,
+    promptTokens: sample.promptTokens,
+    cachedTokens: sample.cachedTokens,
+    serverPromptMs: sample.serverPromptMs,
+    serverPromptN: sample.serverPromptN,
+    ttftMs: sample.ttftMs,
+    ttftContentMs: sample.ttftContentMs,
+    completionTokens: sample.completionTokens,
+    durationMs: sample.durationMs,
+  }));
   good.sort((a, b) => a.tps - b.tps);
   const pick = good[(good.length - 1) >> 1];
   const { sample } = pick;
@@ -341,6 +356,7 @@ export async function runPrefillMeasured(opts, overheadMs, onSample, sampleFn = 
     cachedTokens: sample.cachedTokens,
     samples: good.length,
     samplesRequested: repeats,
+    sampleMeasurements,
     lowConfidence: good.some((g) => g.lowConfidence),
     ...(notice ? { notice } : {}),
     overheadMs,
@@ -797,6 +813,7 @@ export class PrefillBenchManager {
             cachedTokens: 0,
             samples: 0,
             samplesRequested: repeatsForSize(size),
+            sampleMeasurements: [],
             lowConfidence: false,
             overheadMs,
             ttftMs: 0,
