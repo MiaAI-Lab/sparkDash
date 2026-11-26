@@ -18,7 +18,7 @@
  *     "<sparkId>:<port>": {
  *       "updatedAt": 1730000000000,
  *       "lastModelId": "org/model",
- *       "counters": { "output": 1234, "prompt": 5678 },
+ *       "counters": { "output": 1234, "prompt": 5678, "cached": 900, "cachedSource": null },
  *       "models": {
  *         "org/model": {
  *           "promptTokens": 5678, "completionTokens": 1234,
@@ -222,7 +222,7 @@ function finiteCount(v) {
  * older probe without totalPromptTokens support is fine — only the output
  * counter is mandatory) are skipped.
  * @param {Array<unknown>} snapshots
- * @returns {Array<{ sparkId: string, port: number, modelId: string|null, output: number, prompt: number|null, cached: number|null }>}
+ * @returns {Array<{ sparkId: string, port: number, modelId: string|null, output: number, prompt: number|null, cached: number|null, cachedSource: string|null }>}
  */
 export function extractTokenObservations(snapshots) {
   const rows = [];
@@ -243,9 +243,10 @@ export function extractTokenObservations(snapshots) {
       if (output == null) continue;
       const prompt = entry.totalPromptTokens == null ? null : finiteCount(entry.totalPromptTokens);
       const cached = entry.totalCachedTokens == null ? null : finiteCount(entry.totalCachedTokens);
+      const cachedSource = typeof entry.totalCachedTokensSource === "string" ? entry.totalCachedTokensSource : null;
       const rawModel = typeof entry.modelId === "string" ? entry.modelId.trim() : "";
       const modelId = rawModel ? rawModel.slice(0, MODEL_ID_MAX_LEN) : null;
-      rows.push({ sparkId, port, modelId, output, prompt, cached });
+      rows.push({ sparkId, port, modelId, output, prompt, cached, cachedSource });
     }
   }
   return rows;
@@ -311,6 +312,7 @@ export class LlmTokenLedger {
           output: finiteCount(value.counters?.output),
           prompt: value.counters?.prompt == null ? null : finiteCount(value.counters.prompt),
           cached: value.counters?.cached == null ? null : finiteCount(value.counters.cached),
+          cachedSource: typeof value.counters?.cachedSource === "string" ? value.counters.cachedSource : null,
         },
         models,
       };
@@ -386,7 +388,7 @@ export class LlmTokenLedger {
         series = {
           updatedAt: 0,
           lastModelId: null,
-          counters: { output: null, prompt: null, cached: null },
+          counters: { output: null, prompt: null, cached: null, cachedSource: null },
           models: {},
         };
         this._data.series[key] = series;
@@ -415,6 +417,7 @@ export class LlmTokenLedger {
         series.counters.output = obs.output;
         series.counters.prompt = obs.prompt;
         series.counters.cached = obs.cached;
+        series.counters.cachedSource = obs.cachedSource ?? null;
         series.updatedAt = now;
         changed = true;
         continue;
@@ -425,13 +428,21 @@ export class LlmTokenLedger {
         obs.prompt != null && series.counters.prompt != null
           ? obs.prompt - series.counters.prompt
           : null;
+      // The probe switched the counter it reads cached tokens from (a new
+      // sparkDash on a running engine, or SGLang publishing its per-request
+      // counter after the first cache hit): the two counters differ in scale,
+      // so re-baseline the cached counter instead of crediting the jump —
+      // the cached ⊆ prompt rule below would otherwise turn it into phantom
+      // prompt tokens (#448).
+      const cachedSourceChanged = (obs.cachedSource ?? null) !== (series.counters.cachedSource ?? null);
       let dCached =
-        obs.cached != null && series.counters.cached != null
+        obs.cached != null && series.counters.cached != null && !cachedSourceChanged
           ? obs.cached - series.counters.cached
           : null;
       series.counters.output = obs.output;
       series.counters.prompt = obs.prompt;
       series.counters.cached = obs.cached;
+      series.counters.cachedSource = obs.cachedSource ?? null;
       series.updatedAt = now;
 
       // Counter went backwards or jumped implausibly → engine restarted or a

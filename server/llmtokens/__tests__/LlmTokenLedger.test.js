@@ -47,6 +47,7 @@ test("extractTokenObservations: aligns metrics.llm with llmPorts and skips inval
     output: 100,
     prompt: 500,
     cached: null,
+    cachedSource: null,
   });
   assert.deepEqual(rows[1], {
     sparkId: "spark-b",
@@ -55,6 +56,7 @@ test("extractTokenObservations: aligns metrics.llm with llmPorts and skips inval
     output: 7,
     prompt: null,
     cached: null,
+    cachedSource: null,
   });
 });
 
@@ -551,4 +553,45 @@ test("reset() zeroes totals and history, per Spark or for all, and keeps counter
   assert.equal(ledger.reset(), 2);
   assert.equal(total("b"), 0);
   assert.equal(ledger.reset(), 0);
+});
+
+test("LlmTokenLedger: a change of cached-counter source re-baselines instead of crediting the jump (#448)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-tokens-"));
+  const file = path.join(dir, "llm-token-totals.json");
+  const t0 = Date.UTC(2026, 10, 25, 12, 0, 0);
+  const src = (output, prompt, cached, cachedSource) => ({ sparkId: "spark-a", port: 8888, modelId: "org/a", output, prompt, cached, cachedSource });
+  // Baseline written by a build that read the scheduler counter (no source tag in the file).
+  fs.writeFileSync(file, JSON.stringify({ version: 1, series: {
+    "spark-a:8888": { updatedAt: t0, lastModelId: "org/a", counters: { output: 100, prompt: 10000, cached: 9000 },
+      models: { "org/a": { promptTokens: 10000, completionTokens: 100, cachedTokens: 9000, cacheReported: true, lastSeenAt: t0 } } },
+  } }));
+  const ledger = new LlmTokenLedger(file);
+  // The upgraded probe reads the per-request counter, 600 above the old one on the same running engine.
+  ledger.record([src(110, 10100, 9600, "sglang:request")], t0 + 10_000);
+  let m = ledger.snapshot("all", t0 + 10_000).series[0].models[0];
+  assert.equal(m.promptTokens, 10100); // +100 real prompt tokens, no phantom +500
+  assert.equal(m.completionTokens, 110);
+  assert.equal(m.cachedTokens, 9000); // the jump is not credited
+  const day = ledger.snapshot("today", t0 + 10_000).series[0].models[0];
+  assert.equal(day.promptTokens, 100);
+  // Same source again: deltas credit normally from the new baseline, and the tag survives a restart.
+  ledger.close();
+  const reopened = new LlmTokenLedger(file);
+  reopened.record([src(120, 10200, 9695, "sglang:request")], t0 + 20_000);
+  m = reopened.snapshot("all", t0 + 20_000).series[0].models[0];
+  assert.equal(m.promptTokens, 10200);
+  assert.equal(m.cachedTokens, 9095); // +95
+  // Engines without a tag keep crediting cached deltas exactly as before.
+  const plain = tmpLedger();
+  plain.record([obs("spark-b", 8000, "org/b", 10, 1000, 600)], t0);
+  plain.record([obs("spark-b", 8000, "org/b", 20, 2000, 1400)], t0 + 10_000);
+  assert.equal(plain.snapshot().series[0].models[0].cachedTokens, 800);
+});
+
+test("extractTokenObservations: carries the probe's cached-counter source", () => {
+  const rows = extractTokenObservations([{ id: "spark-a", llmPorts: [30000, 8000], metrics: { llm: [
+    { available: true, totalOutputTokens: 5, totalPromptTokens: 50, totalCachedTokens: 40, totalCachedTokensSource: "sglang:request", modelId: "m" },
+    { available: true, totalOutputTokens: 5, totalPromptTokens: 50, totalCachedTokens: 40, modelId: "n" },
+  ] } }]);
+  assert.deepEqual(rows.map((r) => r.cachedSource), ["sglang:request", null]);
 });

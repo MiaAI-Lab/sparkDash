@@ -978,3 +978,22 @@ test("probe: SGLang without /metrics leaves KV fill unknown, not stale", async (
   assert.equal(snap.weightsGb, 71.066);
   assert.equal(snap.kvCacheGb, 10.729);
 });
+
+test("_applySglangMetrics: tags the cached total with the counter it came from (#448)", () => {
+  const probe = new LlmProbe({ lanIp: "10.0.0.1" }, 30000);
+  const base = [
+    "sglang:generation_tokens_total 10",
+    "sglang:prompt_tokens_total 1000",
+    'sglang:realtime_tokens_total{mode="prefill_compute"} 300',
+    'sglang:realtime_tokens_total{mode="prefill_cache"} 650',
+    "sglang:num_running_reqs 0",
+  ];
+  // Before the first cache hit SGLang has no cached_tokens_total series yet: scheduler counter, tagged as such.
+  probe._applySglangMetrics(base.join("\n") + "\n", 2);
+  assert.equal(probe.totalCachedTokens, 650);
+  assert.equal(probe.totalCachedTokensSource, "sglang:realtime");
+  probe._applySglangMetrics([...base, 'sglang:cached_tokens_total{cache_source="device"} 700'].join("\n") + "\n", 2);
+  assert.equal(probe.totalCachedTokens, 700);
+  assert.equal(probe.totalCachedTokensSource, "sglang:request");
+  assert.equal(probe._getSnapshot().totalCachedTokensSource, "sglang:request");
+});
