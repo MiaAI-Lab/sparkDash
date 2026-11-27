@@ -272,7 +272,7 @@ test("runtimes probe schedule is bounded and covers a 7-10s cold first response"
   assert.ok(COLD_FETCH_TIMEOUT_MS <= 15_000, "cold budget stays near the agent 12s collect deadline");
   assert.equal(steps[0].timeoutMs, COLD_FETCH_TIMEOUT_MS);
   assert.equal(steps[0].delayBeforeMs, 0);
-  assert.equal(FETCH_TIMEOUT_MS, 4_000, "warm metric polls keep the short budget");
+  assert.equal(FETCH_TIMEOUT_MS, 8_000, "warm metric polls cover ~2s agent collect with headroom");
 
   const retryDelays = steps.filter((step) => step.phase === "retry").map((step) => step.delayBeforeMs);
   assert.deepEqual(retryDelays, [COLD_RETRY_BASE_MS, COLD_RETRY_MAX_BACKOFF_MS, COLD_RETRY_MAX_BACKOFF_MS]);

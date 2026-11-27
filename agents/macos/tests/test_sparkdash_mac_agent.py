@@ -298,6 +298,152 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(disks[0]["label"], "/System/Volumes/Data")
         self.assertEqual(disks[0]["total"], 948534)
 
+    def test_df_includes_external_volumes_and_skips_recovery_and_system_mounts(self):
+        sample = "\n".join([
+            "Filesystem         1024-blocks      Used  Available Capacity iused       ifree %iused  Mounted on",
+            "/dev/disk3s1s1       482746452  13433800  309939412     5%  486811  3099394120    0%   /",
+            "devfs                      205       205          0   100%     711           0  100%   /dev",
+            "/dev/disk3s6         482746452   4194324  309939412     2%       4  3099394120    0%   /System/Volumes/VM",
+            "/dev/disk3s5         482746452 143185356  309939412    32% 2073200  3099394120    0%   /System/Volumes/Data",
+            "map auto_home                0         0          0   100%       0           0     -   /System/Volumes/Data/home",
+            "/dev/disk3s3         482746452   1938708  309939412     1%      59  3099394120    0%   /Volumes/Recovery",
+            "/dev/disk5s1        1953394756 150374752 1802727180     8%  861492 18027271800    0%   /Volumes/MacData",
+            "/dev/disk6s1        1048576000 104857600  943718400    10%     100  9437184000    0%   /Volumes/My 2TB Drive",
+        ])
+        original = agent.run
+        agent.run = lambda cmd, timeout=1: sample
+        try:
+            disks = agent.disk_stats()
+        finally:
+            agent.run = original
+        self.assertEqual(
+            [(d["device"], d["label"]) for d in disks],
+            [
+                ("disk3s5", "/System/Volumes/Data"),
+                ("disk5s1", "/Volumes/MacData"),
+                ("disk6s1", "/Volumes/My 2TB Drive"),
+            ],
+        )
+        self.assertEqual(disks[1]["total"], 1907612)
+
+    def test_parse_ioreg_disk_bytes_handles_property_order_and_driver_fallback(self):
+        sample = "\n".join([
+            "+-o IOBlockStorageDriver  <class IOBlockStorageDriver, id 0x1>",
+            '  |   "Statistics" = {"Bytes (Read)"=1000,"Bytes (Write)"=2000}',
+            "  +-o External Media  <class IOMedia, id 0x2>",
+            '    |   "BSD Name" = "disk6"',
+            "+-o MacData@1  <class AppleAPFSVolume, id 0x3>",
+            '  |   "Statistics" = {"Bytes read from block device"=3000,"Bytes written to block device"=4000}',
+            '  |   "BSD Name" = "disk5s1"',
+            "+-o Data@5  <class AppleAPFSVolume, id 0x4>",
+            '  |   "BSD Name" = "disk3s5"',
+            '  |   "Statistics" = {"Bytes read from block device"=5000,"Bytes written to block device"=6000}',
+        ])
+        parsed = agent.parse_ioreg_disk_bytes(sample)
+        self.assertEqual(parsed["disk6"], (1000, 2000))
+        self.assertEqual(parsed["disk5s1"], (3000, 4000))
+        self.assertEqual(parsed["disk3s5"], (5000, 6000))
+
+    def test_disk_stats_computes_per_disk_speeds_from_ioreg_deltas(self):
+        df_text = "\n".join([
+            "Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on",
+            "/dev/disk3s5 482746452 143185356 309939412 32% 1 1 0% /System/Volumes/Data",
+            "/dev/disk5s1 1953394756 150374752 1802727180 8% 1 1 0% /Volumes/MacData",
+        ])
+        ioreg_t1 = "\n".join([
+            "+-o Data  <class AppleAPFSVolume, id 0x1>",
+            '  |   "BSD Name" = "disk3s5"',
+            '  |   "Statistics" = {"Bytes read from block device"=1000,"Bytes written to block device"=2000}',
+            "+-o MacData  <class AppleAPFSVolume, id 0x2>",
+            '  |   "Statistics" = {"Bytes read from block device"=10000,"Bytes written to block device"=20000}',
+            '  |   "BSD Name" = "disk5s1"',
+        ])
+        ioreg_t2 = "\n".join([
+            "+-o Data  <class AppleAPFSVolume, id 0x1>",
+            '  |   "BSD Name" = "disk3s5"',
+            '  |   "Statistics" = {"Bytes read from block device"=5000,"Bytes written to block device"=10000}',
+            "+-o MacData  <class AppleAPFSVolume, id 0x2>",
+            '  |   "Statistics" = {"Bytes read from block device"=30000,"Bytes written to block device"=60000}',
+            '  |   "BSD Name" = "disk5s1"',
+        ])
+        original_run = agent.run
+        original_mono = agent.time.monotonic
+        original_last = agent._LAST_DISK_IO
+        state = {"ioreg": ioreg_t1, "t": 100.0}
+        agent.run = lambda cmd, timeout=1: df_text if cmd[0] == "df" else state["ioreg"]
+        agent.time.monotonic = lambda: state["t"]
+        agent._LAST_DISK_IO = None
+        try:
+            first = agent.disk_stats()
+            self.assertEqual(first[0]["readSpeed"], 0)
+            state["ioreg"] = ioreg_t2
+            state["t"] = 102.0
+            second = agent.disk_stats()
+        finally:
+            agent.run = original_run
+            agent.time.monotonic = original_mono
+            agent._LAST_DISK_IO = original_last
+        self.assertEqual(second[0]["readSpeed"], 2000)
+        self.assertEqual(second[0]["writeSpeed"], 4000)
+        self.assertEqual(second[1]["readSpeed"], 10000)
+        self.assertEqual(second[1]["writeSpeed"], 20000)
+
+    def test_parse_ioreg_disk_bytes_scopes_stats_to_nodes_in_nested_apfs_trees(self):
+        # Real `ioreg -r -c IOBlockStorageDriver -k Statistics -l` shape (Mac mini,
+        # trimmed to two trees): driver -> whole-disk IOMedia -> partition scheme ->
+        # APFS container scheme/media/container -> synthetic media -> volumes.
+        parsed = agent.parse_ioreg_disk_bytes(fixture("ioreg.txt"))
+        # Whole-disk IOMedia directly under each IOBlockStorageDriver inherits the
+        # driver's raw counters (Samsung 970 EVO Plus 2TB, then the internal APPLE SSD).
+        self.assertEqual(parsed["disk4"], (626916917248, 423416738304))
+        self.assertEqual(parsed["disk0"], (4387984588800, 1780303220736))
+        # APFS volumes report their own Statistics wherever the properties sit.
+        self.assertEqual(parsed["disk5s1"], (623817478144, 417254617088))
+        self.assertEqual(parsed["disk1s1"], (2146304, 20480))
+        # Plain partitions (EFI/MSR/data) and synthetic container media have no
+        # Statistics of their own and must not inherit any.
+        for absent in ("disk4s1", "disk4s2", "disk4s3", "disk5", "disk1"):
+            self.assertNotIn(absent, parsed)
+        # The AppleAPFSContainerScheme counters (626770640896 read) belong to a node
+        # without a BSD Name and must not land on any device.
+        self.assertNotIn(626770640896, [read for read, _write in parsed.values()])
+
+    def test_disk_stats_maps_sealed_root_snapshot_to_its_base_volume_io(self):
+        df_text = "\n".join([
+            "Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on",
+            "/dev/disk3s1s1 482746452 13433800 309939412 5% 1 1 0% /",
+        ])
+        ioreg_t1 = "\n".join([
+            "+-o System  <class AppleAPFSVolume, id 0x1>",
+            '  |   "BSD Name" = "disk3s1"',
+            '  |   "Statistics" = {"Bytes read from block device"=1000,"Bytes written to block device"=2000}',
+        ])
+        ioreg_t2 = "\n".join([
+            "+-o System  <class AppleAPFSVolume, id 0x1>",
+            '  |   "BSD Name" = "disk3s1"',
+            '  |   "Statistics" = {"Bytes read from block device"=4001,"Bytes written to block device"=5001}',
+        ])
+        original_run = agent.run
+        original_mono = agent.time.monotonic
+        original_last = agent._LAST_DISK_IO
+        state = {"ioreg": ioreg_t1, "t": 10.0}
+        agent.run = lambda cmd, timeout=1: df_text if cmd[0] == "df" else state["ioreg"]
+        agent.time.monotonic = lambda: state["t"]
+        agent._LAST_DISK_IO = None
+        try:
+            agent.disk_stats()
+            state["ioreg"] = ioreg_t2
+            state["t"] = 11.0
+            second = agent.disk_stats()
+        finally:
+            agent.run = original_run
+            agent.time.monotonic = original_mono
+            agent._LAST_DISK_IO = original_last
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]["device"], "disk3s1s1")
+        self.assertEqual(second[0]["readSpeed"], 3001)
+        self.assertEqual(second[0]["writeSpeed"], 3001)
+
     def test_iostat_reads_the_second_sample(self):
         text = (
             "              disk0               cpu    load average\n"

@@ -389,9 +389,71 @@ class CpuProbe:
 
 
 
+_LAST_DISK_IO: tuple[float, dict[str, tuple[int, int]]] | None = None
+
+
+def parse_ioreg_disk_bytes(text: str) -> dict[str, tuple[int, int]]:
+    """Parse per-device (read_bytes, write_bytes) from `ioreg -r -c IOBlockStorageDriver -k Statistics -l`.
+
+    ioreg prints one `+-o <name> <class ...>` line per node, then that node's
+    properties, then its children; the `+-o` column encodes depth. Scoping every
+    property to the node it appears under keeps the APFS container Statistics
+    sandwiched between them from bleeding into the synthetic media (diskN) and
+    volumes (diskNsM) nested inside the physical tree: a device reports its own
+    counters, and only a whole-disk IOMedia directly under an IOBlockStorageDriver
+    falls back to the driver's raw counters.
+    """
+    by_dev: dict[str, tuple[int, int]] = {}
+    # Open nodes as [+-o column, is IOBlockStorageDriver, BSD Name, Statistics];
+    # when a node closes, whatever remains on the stack is its parent.
+    stack: list[list] = []
+
+    def close(frame: list) -> None:
+        _col, _is_driver, bsd, stats = frame
+        if not bsd:
+            return
+        if stats is not None:
+            by_dev[bsd] = stats
+            return
+        parent = stack[-1] if stack else None
+        if parent is not None and parent[1] and parent[3] is not None and re.fullmatch(r"disk\d+", bsd):
+            by_dev[bsd] = parent[3]
+
+    for line in (text or "").splitlines():
+        if "+-o " in line:
+            col = line.index("+-o")
+            while stack and stack[-1][0] >= col:
+                close(stack.pop())
+            stack.append([col, "<class IOBlockStorageDriver," in line, None, None])
+            continue
+        if not stack:
+            continue
+        if '"Statistics" =' in line:
+            rb = re.search(r'"Bytes(?: read from block device| \(Read\))"=(\d+)', line)
+            wb = re.search(r'"Bytes(?: written to block device| \(Write\))"=(\d+)', line)
+            if rb and wb:
+                stack[-1][3] = (int(rb.group(1)), int(wb.group(1)))
+            continue
+        m = re.search(r'"BSD Name" = "([^"]+)"', line)
+        if m:
+            stack[-1][2] = m.group(1)
+    while stack:
+        close(stack.pop())
+    return by_dev
+
+
 def disk_stats() -> list[dict[str, object]]:
-    """Mounted volumes in MB from `df -k` (the sealed system volume yields to the data volume)."""
-    text = run(["df", "-k", "/", "/System/Volumes/Data"], timeout=3.0)
+    """Mounted volumes in MB from `df -k` (data volume plus mounted /Volumes/*, excluding Recovery/hidden)."""
+    global _LAST_DISK_IO
+    text = run(["df", "-k"], timeout=3.0)
+    ioreg_text = run(["/usr/sbin/ioreg", "-r", "-c", "IOBlockStorageDriver", "-k", "Statistics", "-l"], timeout=3.0)
+    io_by_dev = parse_ioreg_disk_bytes(ioreg_text)
+    now = time.monotonic()
+    prev = _LAST_DISK_IO
+    dt = (now - prev[0]) if prev is not None else 0.0
+    if io_by_dev:
+        _LAST_DISK_IO = (now, io_by_dev)
+
     disks: list[dict[str, object]] = []
     seen_data = "/System/Volumes/Data" in text
     for line in text.splitlines()[1:]:
@@ -404,6 +466,14 @@ def disk_stats() -> list[dict[str, object]]:
             continue
         if mount == "/" and seen_data:
             continue
+        is_data_or_root = mount in ("/", "/System/Volumes/Data")
+        is_external = (
+            mount.startswith("/Volumes/")
+            and mount != "/Volumes/Recovery"
+            and not mount.startswith("/Volumes/.")
+        )
+        if not is_data_or_root and not is_external:
+            continue
         try:
             total_mb = int(round(int(size) / 1024))
             used_mb = int(round(int(used) / 1024))
@@ -411,13 +481,35 @@ def disk_stats() -> list[dict[str, object]]:
             percentage = int(pct.rstrip("%"))
         except ValueError:
             continue
+        if total_mb <= 0 or fsys == "devfs":
+            continue
+        device = fsys.split("/")[-1] or fsys
+        io_key = device if device in io_by_dev else None
+        if io_key is None:
+            # The sealed system root mounts as a snapshot (disk3s1s1) of the System
+            # volume (disk3s1); only the snapshot suffix differs.
+            base_match = re.match(r"^(disk\d+s\d+)", device)
+            if base_match and base_match.group(1) in io_by_dev:
+                io_key = base_match.group(1)
+        if io_key is None:
+            parent_match = re.match(r"^(disk\d+)", device)
+            io_key = parent_match.group(1) if parent_match and parent_match.group(1) in io_by_dev else None
+        read_speed = 0
+        write_speed = 0
+        if io_key and prev is not None and dt > 0 and io_key in prev[1]:
+            prev_rb, prev_wb = prev[1][io_key]
+            cur_rb, cur_wb = io_by_dev[io_key]
+            read_speed = max(0, int(round((cur_rb - prev_rb) / dt)))
+            write_speed = max(0, int(round((cur_wb - prev_wb) / dt)))
         disks.append({
-            "device": fsys.split("/")[-1] or fsys,
+            "device": device,
             "label": mount,
             "total": total_mb,
             "used": used_mb,
             "available": avail_mb,
             "percentage": percentage,
+            "readSpeed": read_speed,
+            "writeSpeed": write_speed,
         })
     return disks
 

@@ -28,7 +28,9 @@ const SNAPSHOT_CMD = [
   `echo ${SECTION}top`,
   "top -l 1 -n 0 -s 0 2>/dev/null | grep -E '^CPU usage'",
   `echo ${SECTION}df`,
-  "df -k / /System/Volumes/Data 2>/dev/null",
+  "df -k 2>/dev/null",
+  `echo ${SECTION}ioreg`,
+  "/usr/sbin/ioreg -r -c IOBlockStorageDriver -k Statistics -l 2>/dev/null | grep -E '(\\+-o |\"BSD Name\"|\"Statistics\")' || true",
   `echo ${SECTION}netstat`,
   "IF=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}'); [ -n \"$IF\" ] && netstat -ib -I \"$IF\" 2>/dev/null; [ -n \"$IF\" ] && echo \"ip $(ipconfig getifaddr \"$IF\" 2>/dev/null)\"",
 ].join("; ");
@@ -132,23 +134,32 @@ export function parseTopCpu(text) {
   return Math.max(0, Math.min(100, Math.round(100 - parseFloat(m[1]))));
 }
 
-/** Disks (MB, like SystemCollector) from `df -k`; the sealed system volume is skipped in favour of the data volume. */
+/** Disks (MB, like SystemCollector) from `df -k`; includes `/System/Volumes/Data` and mounted `/Volumes/*` external drives. */
 export function parseDf(text, disabledDevices = []) {
   const disks = [];
+  const seenData = String(text || "").includes("/System/Volumes/Data");
   for (const line of String(text || "").split("\n").slice(1)) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 6) continue;
     const mount = parts.slice(8).join(" ") || parts[parts.length - 1];
     const [fsys, size, used, avail, pct] = parts;
     if (!mount.startsWith("/")) continue;
-    if (mount === "/" && String(text).includes("/System/Volumes/Data")) continue;
+    if (mount === "/" && seenData) continue;
+    const isDataOrRoot = mount === "/" || mount === "/System/Volumes/Data";
+    const isExternalVolume =
+      mount.startsWith("/Volumes/") &&
+      mount !== "/Volumes/Recovery" &&
+      !mount.startsWith("/Volumes/.");
+    if (!isDataOrRoot && !isExternalVolume) continue;
+    const total = Math.round((parseInt(size, 10) || 0) / 1024);
+    if (total <= 0 || fsys === "devfs") continue;
     const device = fsys.split("/").pop() || fsys;
     disks.push({
       device,
       label: mount,
-      used: Math.round(parseInt(used, 10) / 1024),
-      total: Math.round(parseInt(size, 10) / 1024),
-      available: Math.round(parseInt(avail, 10) / 1024),
+      used: Math.round((parseInt(used, 10) || 0) / 1024),
+      total,
+      available: Math.round((parseInt(avail, 10) || 0) / 1024),
       percentage: parseInt(pct, 10) || 0,
       readSpeed: 0,
       writeSpeed: 0,
@@ -156,6 +167,58 @@ export function parseDf(text, disabledDevices = []) {
     });
   }
   return disks;
+}
+
+/**
+ * Parse per-device { readBytes, writeBytes } from `ioreg -r -c IOBlockStorageDriver -k Statistics -l`.
+ *
+ * ioreg prints one `+-o <name> <class ...>` line per node, then that node's
+ * properties, then its children; the `+-o` column encodes depth. Scoping every
+ * property to the node it appears under keeps the APFS container Statistics
+ * sandwiched between them from bleeding into the synthetic media (diskN) and
+ * volumes (diskNsM) nested inside the physical tree: a device reports its own
+ * counters, and only a whole-disk IOMedia directly under an IOBlockStorageDriver
+ * falls back to the driver's raw counters.
+ */
+export function parseIoregDiskBytes(text) {
+  const byDev = new Map();
+  // Open nodes as [+-o column, is IOBlockStorageDriver, BSD Name, stats]; when a
+  // node closes, whatever remains on the stack is its parent.
+  const stack = [];
+  const close = (frame) => {
+    const bsd = frame[2];
+    const stats = frame[3];
+    if (!bsd) return;
+    if (stats !== null) {
+      byDev.set(bsd, stats);
+      return;
+    }
+    const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (parent && parent[1] && parent[3] !== null && /^disk\d+$/.test(bsd)) {
+      byDev.set(bsd, parent[3]);
+    }
+  };
+  for (const line of String(text || "").split("\n")) {
+    if (line.includes("+-o ")) {
+      const col = line.indexOf("+-o");
+      while (stack.length > 0 && stack[stack.length - 1][0] >= col) close(stack.pop());
+      stack.push([col, line.includes("<class IOBlockStorageDriver,"), null, null]);
+      continue;
+    }
+    if (stack.length === 0) continue;
+    if (line.includes('"Statistics" =')) {
+      const rb = line.match(/"Bytes(?: read from block device| \(Read\))"=(\d+)/);
+      const wb = line.match(/"Bytes(?: written to block device| \(Write\))"=(\d+)/);
+      if (rb && wb) {
+        stack[stack.length - 1][3] = { readBytes: parseInt(rb[1], 10), writeBytes: parseInt(wb[1], 10) };
+      }
+      continue;
+    }
+    const m = line.match(/"BSD Name" = "([^"]+)"/);
+    if (m) stack[stack.length - 1][2] = m[1];
+  }
+  while (stack.length > 0) close(stack.pop());
+  return byDev;
 }
 
 /** Byte counters for the link-level row of `netstat -ib -I <iface>`. */
@@ -367,7 +430,32 @@ export class MacSystemCollector extends SystemCollector {
   async collectStorage() {
     try {
       const snap = await this._snapshot();
-      return parseDf(snap.df, this.spark.disabledDevices || []);
+      const disks = parseDf(snap.df, this.spark.disabledDevices || []);
+      const ioByDev = parseIoregDiskBytes(snap.ioreg);
+      if (ioByDev.size > 0) {
+        const now = Date.now();
+        const prev = this._lastDiskIo;
+        const dtSec = prev ? (now - prev.time) / 1000 : 0;
+        if (prev && dtSec > 0) {
+          for (const d of disks) {
+            const parent = (String(d.device).match(/^(disk\d+)/) || [])[1];
+            // Sealed system root mounts as a snapshot (disk3s1s1) of the System
+            // volume (disk3s1); only the snapshot suffix differs.
+            const base = (String(d.device).match(/^(disk\d+s\d+)/) || [])[1];
+            const key = ioByDev.has(d.device)
+              ? d.device
+              : (base && base !== d.device && ioByDev.has(base) ? base : null)
+                ?? (parent && ioByDev.has(parent) ? parent : null);
+            if (!key || !prev.byDev.has(key)) continue;
+            const p = prev.byDev.get(key);
+            const c = ioByDev.get(key);
+            d.readSpeed = Math.max(0, Math.round((c.readBytes - p.readBytes) / dtSec));
+            d.writeSpeed = Math.max(0, Math.round((c.writeBytes - p.writeBytes) / dtSec));
+          }
+        }
+        this._lastDiskIo = { time: now, byDev: ioByDev };
+      }
+      return disks;
     } catch (err) {
       console.error(`[MacSystemCollector] Storage error for ${this.spark.id}:`, err.message);
       return [];

@@ -7,6 +7,7 @@ import {
   MacSystemCollector,
   parseBootTime,
   parseDf,
+  parseIoregDiskBytes,
   parseNetstatBytes,
   parsePowermetrics,
   parseSwapUsage,
@@ -106,6 +107,67 @@ test("df picks the data volume over the sealed system volume", () => {
   assert.equal(disks[0].used, 456405);
   assert.equal(disks[0].available, 450651);
   assert.equal(disks[0].percentage, 51);
+});
+
+test("df includes external /Volumes/* drives and skips system/recovery/pseudo mounts", () => {
+  const sample = [
+    "Filesystem         1024-blocks      Used  Available Capacity iused       ifree %iused  Mounted on",
+    "/dev/disk3s1s1       482746452  13433800  309939412     5%  486811  3099394120    0%   /",
+    "devfs                      205       205          0   100%     711           0  100%   /dev",
+    "/dev/disk3s6         482746452   4194324  309939412     2%       4  3099394120    0%   /System/Volumes/VM",
+    "/dev/disk3s5         482746452 143185356  309939412    32% 2073200  3099394120    0%   /System/Volumes/Data",
+    "map auto_home                0         0          0   100%       0           0     -   /System/Volumes/Data/home",
+    "/dev/disk3s3         482746452   1938708  309939412     1%      59  3099394120    0%   /Volumes/Recovery",
+    "/dev/disk5s1        1953394756 150374752 1802727180     8%  861492 18027271800    0%   /Volumes/MacData",
+    "/dev/disk6s1        1048576000 104857600  943718400    10%     100  9437184000    0%   /Volumes/My 2TB Drive",
+  ].join("\n");
+  const disks = parseDf(sample);
+  assert.deepEqual(
+    disks.map((d) => ({ device: d.device, label: d.label })),
+    [
+      { device: "disk3s5", label: "/System/Volumes/Data" },
+      { device: "disk5s1", label: "/Volumes/MacData" },
+      { device: "disk6s1", label: "/Volumes/My 2TB Drive" },
+    ]
+  );
+  assert.equal(disks[1].total, 1907612);
+});
+
+test("parseIoregDiskBytes parses per-volume and driver fallback counters regardless of property order", () => {
+  const sample = [
+    "+-o IOBlockStorageDriver  <class IOBlockStorageDriver, id 0x1>",
+    '  |   "Statistics" = {"Bytes (Read)"=1000,"Bytes (Write)"=2000}',
+    "  +-o External Media  <class IOMedia, id 0x2>",
+    '    |   "BSD Name" = "disk6"',
+    "+-o Data@5  <class AppleAPFSVolume, id 0x3>",
+    '  |   "BSD Name" = "disk3s5"',
+    '  |   "Statistics" = {"Bytes read from block device"=5000,"Bytes written to block device"=6000}',
+  ].join("\n");
+  const parsed = parseIoregDiskBytes(sample);
+  assert.deepEqual(parsed.get("disk6"), { readBytes: 1000, writeBytes: 2000 });
+  assert.deepEqual(parsed.get("disk3s5"), { readBytes: 5000, writeBytes: 6000 });
+});
+
+test("parseIoregDiskBytes scopes stats to nodes in nested APFS trees", () => {
+  // Real `ioreg -r -c IOBlockStorageDriver -k Statistics -l` shape (Mac mini,
+  // trimmed to two trees): driver -> whole-disk IOMedia -> partition scheme ->
+  // APFS container scheme/media/container -> synthetic media -> volumes.
+  const parsed = parseIoregDiskBytes(fx("ioreg.txt"));
+  // Whole-disk IOMedia directly under each IOBlockStorageDriver inherits the
+  // driver's raw counters (Samsung 970 EVO Plus 2TB, then the internal APPLE SSD).
+  assert.deepEqual(parsed.get("disk4"), { readBytes: 626916917248, writeBytes: 423416738304 });
+  assert.deepEqual(parsed.get("disk0"), { readBytes: 4387984588800, writeBytes: 1780303220736 });
+  // APFS volumes report their own Statistics wherever the properties sit.
+  assert.deepEqual(parsed.get("disk5s1"), { readBytes: 623817478144, writeBytes: 417254617088 });
+  assert.deepEqual(parsed.get("disk1s1"), { readBytes: 2146304, writeBytes: 20480 });
+  // Plain partitions (EFI/MSR/data) and synthetic container media have no
+  // Statistics of their own and must not inherit any.
+  for (const absent of ["disk4s1", "disk4s2", "disk4s3", "disk5", "disk1"]) {
+    assert.equal(parsed.has(absent), false, `${absent} should not be attributed`);
+  }
+  // The AppleAPFSContainerScheme counters belong to a node without a BSD Name
+  // and must not land on any device.
+  assert.equal([...parsed.values()].some((s) => s.readBytes === 626770640896), false);
 });
 
 test("netstat link row gives byte counters", () => {
