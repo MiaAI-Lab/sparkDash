@@ -169,46 +169,55 @@ export function parseDf(text, disabledDevices = []) {
   return disks;
 }
 
-/** Parse per-device { readBytes, writeBytes } from `ioreg -r -c IOBlockStorageDriver -k Statistics -l`. */
+/**
+ * Parse per-device { readBytes, writeBytes } from `ioreg -r -c IOBlockStorageDriver -k Statistics -l`.
+ *
+ * ioreg prints one `+-o <name> <class ...>` line per node, then that node's
+ * properties, then its children; the `+-o` column encodes depth. Scoping every
+ * property to the node it appears under keeps the APFS container Statistics
+ * sandwiched between them from bleeding into the synthetic media (diskN) and
+ * volumes (diskNsM) nested inside the physical tree: a device reports its own
+ * counters, and only a whole-disk IOMedia directly under an IOBlockStorageDriver
+ * falls back to the driver's raw counters.
+ */
 export function parseIoregDiskBytes(text) {
   const byDev = new Map();
-  let nodeStats = null;
-  let nodeDev = null;
-  let driverStats = null;
-  let inDriver = false;
+  // Open nodes as [+-o column, is IOBlockStorageDriver, BSD Name, stats]; when a
+  // node closes, whatever remains on the stack is its parent.
+  const stack = [];
+  const close = (frame) => {
+    const bsd = frame[2];
+    const stats = frame[3];
+    if (!bsd) return;
+    if (stats !== null) {
+      byDev.set(bsd, stats);
+      return;
+    }
+    const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (parent && parent[1] && parent[3] !== null && /^disk\d+$/.test(bsd)) {
+      byDev.set(bsd, parent[3]);
+    }
+  };
   for (const line of String(text || "").split("\n")) {
     if (line.includes("+-o ")) {
-      nodeStats = null;
-      nodeDev = null;
-      if (line.includes("<class IOBlockStorageDriver,")) {
-        driverStats = null;
-        inDriver = true;
-      } else if (!line.includes("<class IOMedia,")) {
-        inDriver = false;
-      }
+      const col = line.indexOf("+-o");
+      while (stack.length > 0 && stack[stack.length - 1][0] >= col) close(stack.pop());
+      stack.push([col, line.includes("<class IOBlockStorageDriver,"), null, null]);
       continue;
     }
+    if (stack.length === 0) continue;
     if (line.includes('"Statistics" =')) {
       const rb = line.match(/"Bytes(?: read from block device| \(Read\))"=(\d+)/);
       const wb = line.match(/"Bytes(?: written to block device| \(Write\))"=(\d+)/);
       if (rb && wb) {
-        nodeStats = { readBytes: parseInt(rb[1], 10), writeBytes: parseInt(wb[1], 10) };
-        if (nodeDev !== null) byDev.set(nodeDev, nodeStats);
-        if (inDriver && driverStats === null) driverStats = nodeStats;
+        stack[stack.length - 1][3] = { readBytes: parseInt(rb[1], 10), writeBytes: parseInt(wb[1], 10) };
       }
       continue;
     }
     const m = line.match(/"BSD Name" = "([^"]+)"/);
-    if (m) {
-      nodeDev = m[1];
-      if (nodeStats !== null) {
-        byDev.set(nodeDev, nodeStats);
-      } else if (driverStats !== null && /^disk\d+$/.test(nodeDev)) {
-        if (!byDev.has(nodeDev)) byDev.set(nodeDev, driverStats);
-        driverStats = null;
-      }
-    }
+    if (m) stack[stack.length - 1][2] = m[1];
   }
+  while (stack.length > 0) close(stack.pop());
   return byDev;
 }
 
@@ -430,7 +439,13 @@ export class MacSystemCollector extends SystemCollector {
         if (prev && dtSec > 0) {
           for (const d of disks) {
             const parent = (String(d.device).match(/^(disk\d+)/) || [])[1];
-            const key = ioByDev.has(d.device) ? d.device : (parent && ioByDev.has(parent) ? parent : null);
+            // Sealed system root mounts as a snapshot (disk3s1s1) of the System
+            // volume (disk3s1); only the snapshot suffix differs.
+            const base = (String(d.device).match(/^(disk\d+s\d+)/) || [])[1];
+            const key = ioByDev.has(d.device)
+              ? d.device
+              : (base && base !== d.device && ioByDev.has(base) ? base : null)
+                ?? (parent && ioByDev.has(parent) ? parent : null);
             if (!key || !prev.byDev.has(key)) continue;
             const p = prev.byDev.get(key);
             const c = ioByDev.get(key);

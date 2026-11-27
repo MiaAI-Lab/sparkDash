@@ -148,6 +148,28 @@ test("parseIoregDiskBytes parses per-volume and driver fallback counters regardl
   assert.deepEqual(parsed.get("disk3s5"), { readBytes: 5000, writeBytes: 6000 });
 });
 
+test("parseIoregDiskBytes scopes stats to nodes in nested APFS trees", () => {
+  // Real `ioreg -r -c IOBlockStorageDriver -k Statistics -l` shape (Mac mini,
+  // trimmed to two trees): driver -> whole-disk IOMedia -> partition scheme ->
+  // APFS container scheme/media/container -> synthetic media -> volumes.
+  const parsed = parseIoregDiskBytes(fx("ioreg.txt"));
+  // Whole-disk IOMedia directly under each IOBlockStorageDriver inherits the
+  // driver's raw counters (Samsung 970 EVO Plus 2TB, then the internal APPLE SSD).
+  assert.deepEqual(parsed.get("disk4"), { readBytes: 626916917248, writeBytes: 423416738304 });
+  assert.deepEqual(parsed.get("disk0"), { readBytes: 4387984588800, writeBytes: 1780303220736 });
+  // APFS volumes report their own Statistics wherever the properties sit.
+  assert.deepEqual(parsed.get("disk5s1"), { readBytes: 623817478144, writeBytes: 417254617088 });
+  assert.deepEqual(parsed.get("disk1s1"), { readBytes: 2146304, writeBytes: 20480 });
+  // Plain partitions (EFI/MSR/data) and synthetic container media have no
+  // Statistics of their own and must not inherit any.
+  for (const absent of ["disk4s1", "disk4s2", "disk4s3", "disk5", "disk1"]) {
+    assert.equal(parsed.has(absent), false, `${absent} should not be attributed`);
+  }
+  // The AppleAPFSContainerScheme counters belong to a node without a BSD Name
+  // and must not land on any device.
+  assert.equal([...parsed.values()].some((s) => s.readBytes === 626770640896), false);
+});
+
 test("netstat link row gives byte counters", () => {
   assert.deepEqual(parseNetstatBytes(fx("netstat.txt")), {
     name: "en1",
