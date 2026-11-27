@@ -71,6 +71,14 @@
         { "device": "disk3s5", "mount": "/", "totalBytes": 994662584320 }
       ],
       "expected": { "device": "disk3s5", "mount": "/" }
+    },
+    {
+      "name": "macOS data volume beats a larger external SSD",
+      "rows": [
+        { "device": "disk3s5", "mount": "/System/Volumes/Data", "totalBytes": 500107862016 },
+        { "device": "disk5s1", "mount": "/Volumes/ExternalSSD", "totalBytes": 2000398934016 }
+      ],
+      "expected": { "device": "disk3s5", "mount": "/System/Volumes/Data" }
     }
   ]
 }

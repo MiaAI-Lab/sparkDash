@@ -8,7 +8,8 @@
  *    without an absolute mount or a size.
  * 2. A bind mount repeats its device: rows of one device count once, at their shortest mount.
  * 3. The filesystem mounted at "/" wins (the biggest, if more than one row says "/"); that is what
- *    "Whole disk" analyses. Otherwise the biggest remaining one.
+ *    "Whole disk" analyses. Otherwise "/System/Volumes/Data" (macOS root data volume when "/" is
+ *    superseded by Data), otherwise the biggest remaining one.
  * Ties go to the shorter, then alphabetically first, mount so every caller picks the same row.
  */
 
@@ -59,7 +60,8 @@ export function mainFilesystem(items, view) {
   rows.push(...byDevice.values());
   const pick = (list) => list.reduce((best, r) => (best == null || better(r, best) ? r : best), null);
   const root = pick(rows.filter((r) => r.mount === "/"));
-  return (root ?? pick(rows))?.item ?? null;
+  const macData = root ? null : pick(rows.filter((r) => r.mount === "/System/Volumes/Data"));
+  return (root ?? macData ?? pick(rows))?.item ?? null;
 }
 
 /** For the Storage Manager's status rows (`{ source, mount, totalBytes }`). */
