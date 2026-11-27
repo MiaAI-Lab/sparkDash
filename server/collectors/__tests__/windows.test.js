@@ -301,6 +301,21 @@ test("Windows drives report read/write speed from cumulative counters and the co
   assert.equal(again.find((d) => d.device === "C:").readSpeed, 2 * 1048576);
 });
 
+test("the default interface breaks a RouteMetric tie with InterfaceMetric", () => {
+  // A cable and Wi-Fi both connected commonly report RouteMetric 0 for their
+  // default routes, and Sort-Object is not stable, so the untiebroken query
+  // picked whichever line the cmdlet emitted first - often the Wi-Fi adapter
+  // even when the cable carries the traffic. That is what made a 1 GbE host
+  // report its 866 Mb/s Wi-Fi link and raise a false "slower than 1 Gb/s".
+  assert.match(WINDOWS_SYSTEM_SCRIPT, /Get-NetIPInterface -AddressFamily IPv4/);
+  // The default-route query must sort on the InterfaceMetric tie-break, not
+  // on RouteMetric alone.
+  const routeLine = WINDOWS_SYSTEM_SCRIPT.split("\n").find((l) => l.includes("Get-NetRoute -DestinationPrefix"));
+  assert.ok(routeLine, "the system script must read the default route");
+  assert.match(routeLine, /Sort-Object RouteMetric,/);
+  assert.match(routeLine, /\$ifm\[\$_\.InterfaceAlias\]/);
+});
+
 test("the Windows system script reads per-drive disk counters and still fits the command-line limit", () => {
   assert.match(WINDOWS_SYSTEM_SCRIPT, /Win32_PerfRawData_PerfDisk_LogicalDisk/);
   assert.ok(powershellCommand(WINDOWS_SYSTEM_SCRIPT).length < 8000);
