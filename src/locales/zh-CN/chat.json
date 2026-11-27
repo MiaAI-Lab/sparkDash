@@ -1,0 +1,16 @@
+{
+  "title": "聊天",
+  "description": "每次向本机 Spark 上的本地模型发送一条消息，用于确认模型可以正常回复。",
+  "placeholder": "输入消息（Enter 发送，Shift+Enter 换行）",
+  "messageAria": "消息",
+  "send": "发送",
+  "stop": "停止",
+  "you": "你：{{prompt}}",
+  "waiting": "…",
+  "stats": "模型 {{model}} · TTFT {{ttft}} · {{tokens}} 个 token · {{rate}} · 共 {{total}}",
+  "unknown": "?",
+  "ttftMs": "{{ms}} 毫秒",
+  "tokPerSec": "{{value}} tok/s",
+  "tokPerSecUnknown": "? tok/s",
+  "totalSec": "{{value}} 秒"
+}

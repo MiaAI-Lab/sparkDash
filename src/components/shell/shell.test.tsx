@@ -314,7 +314,7 @@ describe("MobileTabBar sheet", () => {
     expect(tab("Search")).toBeUndefined();
     act(() => tab("Stats").click());
     let names = [...document.querySelectorAll(".sheet .rail-item__name")].map((n) => n.textContent);
-    expect(names).toEqual(["Token totals", "Cost compare", "Fleet energy", "Temps", "Activity", "Storage"]);
+    expect(names).toEqual(["Token totals", "Cost compare", "Fleet energy", "Temps", "Activity", "Storage", "Chat"]);
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });

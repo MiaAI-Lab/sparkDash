@@ -1,0 +1,20 @@
+/* Chat page input: explicit theme-variable colors so typed text and caret stay readable in dark, oled, light and white. */
+.chat-input {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-strong);
+  caret-color: var(--color-accent);
+  -webkit-text-fill-color: var(--color-text-strong);
+  font-size: 16px;
+  line-height: 1.4;
+  resize: vertical;
+}
+.chat-input::placeholder {
+  color: var(--color-muted);
+  -webkit-text-fill-color: var(--color-muted);
+  opacity: 1;
+}
+.chat-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}

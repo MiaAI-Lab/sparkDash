@@ -21,9 +21,9 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AuthMode, SparkSnapshot } from "../../api/types";
 import { isWorkerSpark } from "../../api/sparkRole";
-import { ACTIVITY_ID, API_KEYS_ID, TRAINING_ID, benchId, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
+import { ACTIVITY_ID, API_KEYS_ID, TRAINING_ID, benchId, CHAT_ID, COST_ID, ENERGY_ID, idToPath, KIOSK_ID, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
 import { NAV_BENCH_TYPES, benchNavActive } from "../bench/benchCatalog";
-import { BoltIcon, ChevronDownIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
+import { BoltIcon, ChatIcon, ChevronDownIcon, CoinsIcon, DiskIcon, ExpandIcon, GearIcon, GithubIcon, GlobeIcon, GridIcon, KeyIcon, ListIcon, PanelLeftIcon, PlusIcon, SearchIcon, TerminalIcon, ThermometerIcon, TokensIcon, XLogoIcon } from "../ui/icons";
 import { OpenAccessChip } from "../OpenAccessChip";
 import { ThemeSwitch } from "../ThemeSwitch";
 import { isThrottling, railSubLabel } from "./sparkSummary";
@@ -443,6 +443,15 @@ export function AppSidebar({
           <a href={idToPath(KIOSK_ID)} className="rail-item" title={t("sidebar.kioskTitle")}>
             <ExpandIcon className="h-4 w-4" />
             <span className="rail-item__name">{t("nav.kiosk")}</span>
+          </a>
+          <a
+            href={idToPath(CHAT_ID)}
+            className={`rail-item ${activeId === CHAT_ID ? "is-active" : ""}`}
+            onClick={inApp(() => onSelect(CHAT_ID))}
+            aria-current={activeId === CHAT_ID ? "page" : undefined}
+          >
+            <ChatIcon className="h-4 w-4" />
+            <span className="rail-item__name">{t("nav.chat")}</span>
           </a>
         </nav>
       </div>

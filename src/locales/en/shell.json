@@ -2,6 +2,7 @@
   "nav": {
     "overview": "Overview",
     "tokens": "Token totals",
+    "chat": "Chat",
     "cost": "Cost compare",
     "energy": "Fleet energy",
     "temps": "Temps",

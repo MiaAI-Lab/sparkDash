@@ -16,6 +16,7 @@ test("docker-compose.yml and docker-compose.image.yml forward the MODEL_PRICES_*
     const compose = fs.readFileSync(path.join(ROOT, file), "utf8");
     assert.match(compose, /MODEL_PRICES_FETCH=\$\{MODEL_PRICES_FETCH:-0\}/, `${file}: MODEL_PRICES_FETCH passthrough`);
     assert.match(compose, /MODEL_PRICES_JSON_PATH=\$\{MODEL_PRICES_JSON_PATH:-\}/, `${file}: MODEL_PRICES_JSON_PATH passthrough`);
+    assert.match(compose, /CHAT_MODEL=\$\{CHAT_MODEL:-\}/, `${file}: CHAT_MODEL passthrough`);
     // Canary: the files really are the deployment manifests with an environment block.
     assert.match(compose, /MAX_ACTIVE_BENCH_JOBS=/, `${file}: environment block present`);
   }

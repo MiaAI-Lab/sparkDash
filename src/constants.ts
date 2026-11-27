@@ -8,6 +8,8 @@ export const ACTIVITY_ID = "__activity__";
 /** Storage Manager: what fills a Spark's disk, Docker images, and deleting them. */
 export const STORAGE_ID = "__storage__";
 export const SHOWCASE_ID = "__showcase__";
+/** One-message chat against the local LLM. */
+export const CHAT_ID = "__chat__";
 /** Cost compare page: fleet token usage priced as a hosted API model. */
 export const COST_ID = "__cost__";
 /** Kiosk wall display: rendered outside the dashboard shell (useAppRoute), so the app never navigates to it in place. */
@@ -27,6 +29,7 @@ const FIXED_PATHS: Record<string, string> = {
   [ACTIVITY_ID]: "/activity",
   [STORAGE_ID]: "/storage",
   [SHOWCASE_ID]: "/showcase",
+  [CHAT_ID]: "/chat",
   [COST_ID]: "/cost",
   [KIOSK_ID]: "/kiosk",
   [API_KEYS_ID]: "/api-keys",

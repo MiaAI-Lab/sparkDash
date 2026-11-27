@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useInertBackground } from "../../hooks/useInertBackground";
 import type { SparkSnapshot } from "../../api/types";
-import { ACTIVITY_ID, API_KEYS_ID, TRAINING_ID, benchId, benchTypeOf, COST_ID, ENERGY_ID, isPageId, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
+import { ACTIVITY_ID, API_KEYS_ID, TRAINING_ID, benchId, benchTypeOf, CHAT_ID, COST_ID, ENERGY_ID, isPageId, OVERVIEW_ID, SHOWCASE_ID, STORAGE_ID, TEMPS_ID, TOKENS_ID } from "../../constants";
 import { NAV_BENCH_TYPES, benchNavActive } from "../bench/benchCatalog";
-import { BoltIcon, ChartIcon, CoinsIcon, DiskIcon, GearIcon, GridIcon, KeyIcon, ListIcon, PlusIcon, ServerIcon, TerminalIcon, ThermometerIcon, TokensIcon } from "../ui/icons";
+import { BoltIcon, ChartIcon, ChatIcon, CoinsIcon, DiskIcon, GearIcon, GridIcon, KeyIcon, ListIcon, PlusIcon, ServerIcon, TerminalIcon, ThermometerIcon, TokensIcon } from "../ui/icons";
 import { isThrottling, railSubLabel } from "./sparkSummary";
 import { useBenchLabels } from "./useBenchLabels";
 import { ShutdownAll } from "../ShutdownAll";
@@ -68,7 +68,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
     return () => document.removeEventListener("keydown", onKey);
   }, [sheet]);
   // Which tab the sliding highlight sits under (-1 hides it, e.g. while on a Settings dialog).
-  const statsActive = activeId === TOKENS_ID || activeId === COST_ID || (showApiKeys && activeId === API_KEYS_ID) || (showTraining && activeId === TRAINING_ID) || activeId === ENERGY_ID || activeId === TEMPS_ID || activeId === ACTIVITY_ID || activeId === STORAGE_ID;
+  const statsActive = activeId === TOKENS_ID || activeId === COST_ID || (showApiKeys && activeId === API_KEYS_ID) || (showTraining && activeId === TRAINING_ID) || activeId === ENERGY_ID || activeId === TEMPS_ID || activeId === ACTIVITY_ID || activeId === STORAGE_ID || activeId === CHAT_ID;
   const tabIndex =
     sheetKind === "sparks" ? 1 : sheetKind === "stats" ? 2 : activeId === OVERVIEW_ID ? 0 : onSpark ? 1 : statsActive ? 2 : -1;
   const pageButton = (id: string, label: string, icon: ReactNode, compact = false) => (
@@ -129,6 +129,7 @@ export function MobileTabBar({ sparks, activeId, onSelect, onAdd, onOpenSettings
                       [TEMPS_ID, t("nav.temps"), <ThermometerIcon key="tp" className="h-4 w-4" />],
                       [ACTIVITY_ID, t("nav.activity"), <ListIcon key="a" className="h-4 w-4" />],
                       [STORAGE_ID, t("nav.storage"), <DiskIcon key="st" className="h-4 w-4" />],
+                      [CHAT_ID, t("nav.chat"), <ChatIcon key="ch" className="h-4 w-4" />],
                     ] as const).map(([id, label, icon]) => pageButton(id, label, icon)).concat(
                       ...(showApiKeys ? [pageButton(API_KEYS_ID, t("nav.apiKeys"), <KeyIcon key="k" className="h-4 w-4" />)] : []),
                       ...(showTraining ? [pageButton(TRAINING_ID, t("nav.training"), <ListIcon key="tr" className="h-4 w-4" />)] : [])

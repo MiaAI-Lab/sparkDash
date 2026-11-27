@@ -373,6 +373,14 @@ export function GripVerticalIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function ChatIcon({ className }: IconProps) {
+  return (
+    <svg {...baseProps(className)}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 export function TokensIcon({ className = "" }: { className?: string }) {
   return (
     <svg {...baseProps(className)}>
