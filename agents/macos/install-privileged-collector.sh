@@ -4,6 +4,19 @@
 # read or written.
 set -eu
 
+STORAGE_CATEGORIES=0
+for arg in "$@"; do
+  case "$arg" in
+    --storage-categories)
+      STORAGE_CATEGORIES=1
+      ;;
+    *)
+      echo "usage: $0 [--storage-categories]" >&2
+      exit 2
+      ;;
+  esac
+done
+
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)
 LABEL=ai.onyx.sparkdash-mac-agent.privileged
@@ -27,7 +40,11 @@ fi
 
 TMP=$(mktemp "${TMPDIR:-/tmp}/sparkdash-mac-agent-privileged.XXXXXX.plist")
 trap 'rm -f "$TMP"' EXIT
-/usr/bin/python3 -I "$HELPER" plist "$TEMPLATE" "$INSTALL_DIR" > "$TMP"
+if [ "$STORAGE_CATEGORIES" -eq 1 ]; then
+  /usr/bin/python3 -I "$HELPER" plist "$TEMPLATE" "$INSTALL_DIR" --storage-categories > "$TMP"
+else
+  /usr/bin/python3 -I "$HELPER" plist "$TEMPLATE" "$INSTALL_DIR" > "$TMP"
+fi
 plutil -lint "$TMP"
 
 sudo -v
@@ -43,4 +60,7 @@ sudo -n launchctl kickstart -k "system/${LABEL}"
 sudo -n launchctl print "system/${LABEL}" >/dev/null
 echo "Privileged collector is on http://127.0.0.1:8791/metrics"
 echo "Point the sparkDash Mac node agent port at 8791 to read temperatures."
+if [ "$STORAGE_CATEGORIES" -eq 1 ]; then
+  echo "Storage categories enabled (works immediately; optional Full Disk Access helper: /usr/bin/python3 \"$INSTALL_DIR/sparkdash_mac_agent.py\" --setup-fda)"
+fi
 echo "Uninstall with: agents/macos/uninstall-privileged-collector.sh"

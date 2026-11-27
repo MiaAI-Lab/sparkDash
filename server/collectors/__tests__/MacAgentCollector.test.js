@@ -533,3 +533,38 @@ test("agent targets reject unsafe URLs and forbidden DNS answers", async () => {
   const { assertMacAgentTarget } = await import("../MacAgentCollector.js");
   await assert.rejects(() => assertMacAgentTarget("http://fixture.example", { lookup: async () => [{ address: "169.254.169.254" }] }), /forbidden/);
 });
+
+test("agent storage categories pass through sanitized onto the data-volume disk", async () => {
+  const data = structuredClone(snapshot);
+  const dataDisk = data.disks.find((d) => d.label === "/System/Volumes/Data");
+  dataDisk.categories = [
+    { id: " applications ", megabytes: 12605 },
+    { id: "applications", megabytes: 999 },
+    { id: "   ", megabytes: 10 },
+    { id: "documents", megabytes: 3572, restricted: true },
+    { id: "junk", megabytes: -5 },
+    { id: "bad", megabytes: "many" },
+    null,
+    { id: "systemData", megabytes: 114750.4 },
+  ];
+  const collector = new MacAgentCollector(spark, {
+    fetchImpl: async () => ({ ok: true, json: async () => data }),
+    exec: async () => { throw new Error("SSH must not run"); },
+  });
+  const storage = await collector.collectStorage();
+  const disk = storage.find((d) => d.label === "/System/Volumes/Data");
+  assert.deepEqual(disk.categories, [
+    { id: "applications", megabytes: 12605 },
+    { id: "documents", megabytes: 3572, restricted: true },
+    { id: "systemData", megabytes: 114750 },
+  ]);
+  const others = storage.filter((d) => d.label !== "/System/Volumes/Data");
+  assert.ok(others.every((d) => !("categories" in d)));
+});
+
+test("agent storage without categories keeps the plain disk shape", async () => {
+  const collector = collectorWith("ok").collector;
+  const storage = await collector.collectStorage();
+  assert.ok(storage.length > 0);
+  assert.ok(storage.every((d) => !("categories" in d)));
+});

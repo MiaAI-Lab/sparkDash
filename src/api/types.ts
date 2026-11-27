@@ -441,6 +441,15 @@ export interface RamMetrics {
 }
 
 // ─── Storage metrics ─────────────────────────────────────
+/** One Apple-style storage category of a Mac agent volume. `restricted` marks
+ *  categories the agent could only partially read (typically no Full Disk
+ *  Access); their megabytes are a lower bound, never a healthy measured value. */
+export interface StorageCategoryMetric {
+  id: string;
+  megabytes: number;
+  restricted?: boolean;
+}
+
 export interface StorageMetrics {
   device: string;
   label: string;
@@ -452,6 +461,10 @@ export interface StorageMetrics {
   writeSpeed: number;
   /** Present when device is in disabledDevices; still returned for Settings UI */
   disabled?: boolean;
+  /** Mac agent only, when the agent has storageCategories enabled: an
+   *  Apple-style breakdown of this volume's used space, ending with the
+   *  "systemData" residual. Volumes without it keep the plain usage bar. */
+  categories?: StorageCategoryMetric[];
 }
 
 // ─── Network metrics ─────────────────────────────────────

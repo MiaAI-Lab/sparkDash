@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useState, useCallback } from "react";
-import type { StorageMetrics } from "../../api/types";
+import type { StorageCategoryMetric, StorageMetrics } from "../../api/types";
 import { updateDisabledDevices, refreshSparkMetric, updateSpark } from "../../api/client";
 import { Panel } from "../ui/Panel";
 import { DiskIcon, GearIcon, RotateIcon } from "../ui/icons";
@@ -15,6 +15,78 @@ interface StoragePanelProps {
   onStoragePollModeChange?: (disabled: boolean) => void;
 }
 
+/** camelCase category id → kebab-case CSS suffix (icloudDrive → icloud-drive). */
+function categoryClass(id: string): string {
+  return id
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "");
+}
+
+function categoryLabel(t: (key: string) => string, id: string): string {
+  switch (id) {
+    case "applications":
+      return t("storage.categories.applications");
+    case "developer":
+      return t("storage.categories.developer");
+    case "documents":
+      return t("storage.categories.documents");
+    case "photos":
+      return t("storage.categories.photos");
+    case "media":
+      return t("storage.categories.media");
+    case "mail":
+      return t("storage.categories.mail");
+    case "messages":
+      return t("storage.categories.messages");
+    case "icloudDrive":
+      return t("storage.categories.icloudDrive");
+    case "iosFiles":
+      return t("storage.categories.iosFiles");
+    case "trash":
+      return t("storage.categories.trash");
+    case "systemData":
+      return t("storage.categories.systemData");
+    default:
+      return id;
+  }
+}
+
+/** Categories with measured usage; empty (0 MB) categories stay hidden until non-zero. */
+function visibleCategories(disk: StorageMetrics): StorageCategoryMetric[] {
+  return (disk.categories ?? []).filter((c) => c.megabytes > 0);
+}
+
+/** Restricted categories whose readable lower bound is currently 0 MB. */
+function hiddenRestrictedCategories(disk: StorageMetrics): StorageCategoryMetric[] {
+  return (disk.categories ?? []).filter((c) => c.megabytes <= 0 && c.restricted === true);
+}
+
+/** Compute segment bar percentages so tiny slivers stay visible without eating into free space. */
+function segmentWidths(segments: StorageCategoryMetric[], total: number): number[] {
+  if (total <= 0 || segments.length === 0) return segments.map(() => 0);
+  const raw = segments.map((c) => Math.max(0, (c.megabytes / total) * 100));
+  const floors = segments.map((c, idx) => (c.restricted ? 0.5 : raw[idx] > 0 ? 0.8 : 0));
+  const widths = raw.map((pct, idx) => Math.max(pct, floors[idx]));
+  const extra = widths.reduce((sum, w, idx) => sum + Math.max(0, w - raw[idx]), 0);
+  if (extra > 0) {
+    const slacks = widths.map((w, idx) => Math.max(0, w - floors[idx]));
+    const totalSlack = slacks.reduce((sum, s) => sum + s, 0);
+    if (totalSlack > 0) {
+      const ratio = Math.min(extra, totalSlack) / totalSlack;
+      for (let i = 0; i < widths.length; i++) {
+        widths[i] -= slacks[i] * ratio;
+      }
+    }
+  }
+  const sum = widths.reduce((acc, w) => acc + w, 0);
+  if (sum > 100) {
+    const scale = 100 / sum;
+    for (let i = 0; i < widths.length; i++) widths[i] *= scale;
+  }
+  return widths;
+}
+
 function UsageBar({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   const barColor = pct > 85 ? "bg-danger" : pct > 60 ? "bg-warning" : "bg-info";
@@ -24,6 +96,75 @@ function UsageBar({ value, max }: { value: number; max: number }) {
         className={`metric-bar-fill sp-bar__fill ${barColor}`}
         style={{ ["--bar-pct" as string]: `${pct}%` }}
       />
+    </div>
+  );
+}
+
+/** Apple-style segmented usage bar; unknown categories fall back to a neutral gray. */
+function CategoryBar({ disk }: { disk: StorageMetrics }) {
+  const { t } = useTranslation("hardware");
+  const segments = visibleCategories(disk);
+  const widths = segmentWidths(segments, disk.total);
+  const usedPct = widths.reduce((acc, w) => acc + w, 0);
+  return (
+    <div
+      className="sp-storage-bar"
+      role="img"
+      aria-label={t("storage.categories.ariaLabel", { label: disk.label })}
+    >
+      {segments.map((c, idx) => {
+        const label = categoryLabel(t, c.id);
+        const size = formatGb(c.megabytes);
+        return (
+          <div
+            key={c.id}
+            className={`sp-storage-bar__seg sp-storage-bar__seg--${categoryClass(c.id)}${c.restricted ? " is-restricted" : ""}`}
+            style={{ ["--seg-pct" as string]: `${widths[idx]}%` }}
+            title={c.restricted
+              ? `${label}: ${size} — ${t("storage.categories.restricted")}`
+              : `${label}: ${size}`}
+          />
+        );
+      })}
+      {usedPct < 99.99 && (
+        <div className="sp-storage-bar__free" style={{ ["--seg-pct" as string]: `${100 - usedPct}%` }} />
+      )}
+    </div>
+  );
+}
+
+function CategoryLegend({ disk }: { disk: StorageMetrics }) {
+  const { t } = useTranslation("hardware");
+  const segments = visibleCategories(disk);
+  const hiddenRestricted = hiddenRestrictedCategories(disk);
+  if (segments.length === 0 && hiddenRestricted.length === 0) return null;
+  return (
+    <div className="sp-storage-legend">
+      {segments.map((c) => (
+        <span
+          key={c.id}
+          className="sp-storage-legend__item"
+          title={c.restricted ? t("storage.categories.restricted") : undefined}
+        >
+          <span className={`sp-storage-legend__dot sp-storage-bar__seg--${categoryClass(c.id)}`} />
+          <span className="sp-clip">
+            {categoryLabel(t, c.id)}
+            {c.restricted ? "*" : ""}
+          </span>
+          <span className="sp-storage-legend__size">{formatGb(c.megabytes)}</span>
+        </span>
+      ))}
+      {hiddenRestricted.length > 0 && (
+        <span
+          className="sp-storage-legend__item sp-storage-legend__restricted"
+          title={`${hiddenRestricted.map((c) => categoryLabel(t, c.id)).join(", ")} — ${t("storage.categories.restricted")}`}
+        >
+          <span className="sp-storage-legend__dot is-restricted" />
+          <span className="sp-clip">
+            {t("storage.categories.restrictedHidden", { count: hiddenRestricted.length })}
+          </span>
+        </span>
+      )}
     </div>
   );
 }
@@ -197,6 +338,8 @@ export function StoragePanel({
           ) : (
             <div className="sp-stack">
               {visibleDisks.map((disk) => {
+                const categories =
+                  visibleCategories(disk).length > 0 || hiddenRestrictedCategories(disk).length > 0;
                 return (
                   <div key={`${disk.device}:${disk.label}`}>
                     <div className="sp-lbl">
@@ -207,7 +350,8 @@ export function StoragePanel({
                         {formatGb(disk.used)} / {formatGb(disk.total)}
                       </b>
                     </div>
-                    <UsageBar value={disk.used} max={disk.total} />
+                    {categories ? <CategoryBar disk={disk} /> : <UsageBar value={disk.used} max={disk.total} />}
+                    {categories && <CategoryLegend disk={disk} />}
                     <div className="sp-lbl sp-lbl--sub">
                       <span className="mono">
                         <span className="text-accent">↑</span> {formatBytesPerSec(disk.writeSpeed || 0)}

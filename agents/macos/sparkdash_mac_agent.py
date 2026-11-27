@@ -34,13 +34,16 @@ import argparse
 import json
 import os
 import platform
+import pwd
 import re
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -389,27 +392,96 @@ class CpuProbe:
 
 
 
-def disk_stats() -> list[dict[str, object]]:
-    """Mounted volumes in MB from `df -k` (the sealed system volume yields to the data volume)."""
-    text = run(["df", "-k", "/", "/System/Volumes/Data"], timeout=3.0)
+_DF_MOUNT_RE = re.compile(r"^\s*(?:\S+\s+){8}(.+)$")
+
+
+def _parse_df_mount(line: str) -> tuple[str, list[str], str] | None:
+    """Parse one `df -k` / `df -kl` data line into (filesystem, parts, mount)."""
+    stripped = line.strip()
+    parts = stripped.split()
+    if len(parts) < 6:
+        return None
+    if len(parts) >= 9:
+        match = _DF_MOUNT_RE.match(stripped)
+        mount = match.group(1) if match else parts[-1]
+    else:
+        mount = parts[-1]
+    if not mount.startswith("/"):
+        return None
+    return parts[0], parts, mount
+
+
+def _is_readonly_mount(mount: str) -> bool:
+    try:
+        return bool(os.statvfs(mount).f_flag & getattr(os, "ST_RDONLY", 1))
+    except OSError:
+        return False
+
+
+def _is_timemachine_volume(mount: str) -> bool:
+    try:
+        return os.path.exists(os.path.join(mount, "Backups.backupdb"))
+    except OSError:
+        return False
+
+
+def _is_local_external_volume(
+    fsys: str,
+    mount: str,
+    *,
+    exclude_volumes: set[str] | None = None,
+    is_readonly=_is_readonly_mount,
+    is_timemachine=_is_timemachine_volume,
+) -> bool:
+    return (
+        mount.startswith("/Volumes/")
+        and not mount.startswith("/Volumes/.")
+        and mount != "/Volumes/Recovery"
+        and fsys.startswith("/dev/disk")
+        and os.path.normpath(mount) not in (exclude_volumes or set())
+        and not is_readonly(mount)
+        and not is_timemachine(mount)
+    )
+
+
+def disk_stats(
+    *,
+    include_external: bool = False,
+    exclude_volumes: set[str] | None = None,
+    is_readonly=_is_readonly_mount,
+    is_timemachine=_is_timemachine_volume,
+) -> list[dict[str, object]]:
+    """Mounted local volumes in MB from `df -kl`.
+
+    Reports the internal data/root volume, plus writable local external
+    /Volumes/* disks when storage categories are enabled (network mounts,
+    hidden system volumes, read-only images, and Time Machine stores are skipped).
+    """
+    text = run(["df", "-kl"], timeout=3.0)
+    rows = [row for row in (_parse_df_mount(line) for line in text.splitlines()[1:]) if row is not None]
+    seen_data = any(mount == INTERNAL_VOLUME for _, _, mount in rows)
     disks: list[dict[str, object]] = []
-    seen_data = "/System/Volumes/Data" in text
-    for line in text.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) < 6:
-            continue
-        fsys, size, used, avail, pct = parts[0], parts[1], parts[2], parts[3], parts[4]
-        mount = " ".join(parts[8:]) if len(parts) > 8 else parts[-1]
-        if not mount.startswith("/"):
-            continue
+    for fsys, parts, mount in rows:
         if mount == "/" and seen_data:
             continue
+        is_data = mount in ("/", INTERNAL_VOLUME)
+        is_external = include_external and _is_local_external_volume(
+            fsys,
+            mount,
+            exclude_volumes=exclude_volumes,
+            is_readonly=is_readonly,
+            is_timemachine=is_timemachine,
+        )
+        if not is_data and not is_external:
+            continue
         try:
-            total_mb = int(round(int(size) / 1024))
-            used_mb = int(round(int(used) / 1024))
-            avail_mb = int(round(int(avail) / 1024))
-            percentage = int(pct.rstrip("%"))
+            total_mb = int(round(int(parts[1]) / 1024))
+            used_mb = int(round(int(parts[2]) / 1024))
+            avail_mb = int(round(int(parts[3]) / 1024))
+            percentage = int(parts[4].rstrip("%"))
         except ValueError:
+            continue
+        if total_mb <= 0:
             continue
         disks.append({
             "device": fsys.split("/")[-1] or fsys,
@@ -420,6 +492,629 @@ def disk_stats() -> list[dict[str, object]]:
             "percentage": percentage,
         })
     return disks
+
+
+# ─── storage categories ──────────────────────────────────────────────────────
+
+# Apple-style storage categories, opt-in via "storageCategories" in the
+# runtime inventory JSON or `--storage-categories`. Each category runs `du` over
+# well-known directories (plus any configured extraPaths); whatever is not
+# measured shows up as the "systemData" residual computed at snapshot time, so an
+# unknown layout can never be presented as measured. Directories that TCC hides
+# from the agent (no Full Disk Access) come back with "restricted": true.
+STORAGE_CATEGORY_SCAN_TTL_S = 900.0  # a scan costs seconds; it is not per-poll work
+STORAGE_CATEGORY_RETRY_S = 60.0      # failed scans retry in a minute instead of a full interval
+STORAGE_CATEGORY_DU_TIMEOUT_S = 120.0  # du over a user tree can outlast a normal probe
+STORAGE_CATEGORY_DU_BATCH = 256
+_BENIGN_DU_STDERR = "Resource deadlock avoided"
+_UNSET = object()
+
+STORAGE_CATEGORY_DIRS: dict[str, list[str]] = {
+    "applications": ["/Applications", "~/Applications"],
+    "developer": ["/Library/Developer", "~/Library/Developer", "~/Developer"],
+    "photos": ["~/Pictures"],
+    "media": ["~/Music", "~/Movies"],
+    "mail": ["~/Library/Mail"],
+    "messages": ["~/Library/Messages"],
+    "icloudDrive": ["~/Library/Mobile Documents"],
+    "iosFiles": ["~/Library/Application Support/MobileSync"],
+    "trash": ["~/.Trash"],
+}
+
+# Apple defines Documents as "files from your home folder that aren't in
+# another category" — a residual of the user's home minus Applications,
+# Developer, Library, media folders and Trash, so Desktop, Downloads and
+# project trees count in Documents rather than collapsing into a sliver.
+STORAGE_CATEGORY_RESIDUALS: dict[str, dict[str, object]] = {
+    "documents": {
+        "base": "~",
+        "exclude": [
+            "~/Applications",
+            "~/Developer",
+            "~/Library",
+            "~/Pictures",
+            "~/Music",
+            "~/Movies",
+            "~/.Trash",
+        ],
+    },
+}
+
+# Display order of the segmented bar (systemData is appended by the snapshot).
+STORAGE_CATEGORY_ORDER = ("applications", "developer", "documents", "photos", "media",
+                          "mail", "messages", "icloudDrive", "iosFiles", "trash")
+
+INTERNAL_VOLUME = "/System/Volumes/Data"
+
+
+def storage_category_config(inventory: dict[str, object], *, cli_enabled: bool = False) -> dict[str, object] | None:
+    """Parse opt-in `storageCategories` settings (boolean or object) from inventory."""
+    raw = inventory.get("storageCategories")
+    if isinstance(raw, dict):
+        if raw.get("enabled") is False and not cli_enabled:
+            return None
+        home_raw = raw.get("home")
+        home = home_raw.strip() if isinstance(home_raw, str) and home_raw.strip() else None
+        external_flag = bool(raw.get("externalVolumes", True))
+        exclude_volumes = {
+            os.path.normpath(v.strip())
+            for v in (raw.get("excludeVolumes") or [])
+            if isinstance(v, str) and v.strip()
+        }
+        extra_paths: dict[str, list[str]] = {}
+        raw_extra = raw.get("extraPaths")
+        if isinstance(raw_extra, dict):
+            for key, paths in raw_extra.items():
+                if not isinstance(key, str) or not key.strip() or not isinstance(paths, list):
+                    continue
+                cleaned = [p.strip() for p in paths if isinstance(p, str) and p.strip()]
+                if cleaned:
+                    extra_paths[key.strip()] = cleaned
+        return {
+            "home": home,
+            "external_volumes": external_flag,
+            "exclude_volumes": exclude_volumes,
+            "extra_paths": extra_paths,
+        }
+    if not raw and not cli_enabled:
+        return None
+    return {
+        "home": None,
+        "external_volumes": True,
+        "exclude_volumes": set(),
+        "extra_paths": {},
+    }
+
+
+def console_user_home() -> str | None:
+    """Home of the logged-in console user, or None when headless / uid 0."""
+    try:
+        uid = os.stat("/dev/console").st_uid
+        if uid == 0:
+            return None
+        home = pwd.getpwuid(uid).pw_dir
+    except (OSError, KeyError):
+        return None
+    return home or None
+
+
+def _resolve_scan_home(configured_home: str | None = None) -> str | None:
+    """Target user home for ~ expansion; never fall back to /var/root."""
+    if configured_home:
+        return configured_home
+    if os.geteuid() != 0:
+        return os.path.expanduser("~")
+    return console_user_home()
+
+
+def expand_category_path(path: str, home: object = _UNSET) -> str | None:
+    """Expand a leading "~" against the resolved scan home (None when unavailable)."""
+    if path != "~" and not path.startswith("~/"):
+        return path
+    resolved_home = _resolve_scan_home() if home is _UNSET else home
+    if not isinstance(resolved_home, str) or not resolved_home:
+        return None
+    base = resolved_home.rstrip("/") or "/"
+    if path == "~":
+        return base
+    return base + path[1:] if base != "/" else path[1:]
+
+
+def external_volumes(
+    df_text: str | None = None,
+    *,
+    exclude_volumes: set[str] | None = None,
+    is_readonly=_is_readonly_mount,
+    is_timemachine=_is_timemachine_volume,
+) -> list[str]:
+    """Local writable external volume mounts from `df -kl`."""
+    text = df_text if df_text is not None else run(["df", "-kl"], timeout=3.0)
+    mounts: list[str] = []
+    for line in str(text or "").splitlines()[1:]:
+        parsed = _parse_df_mount(line)
+        if parsed is None:
+            continue
+        fsys, _, mount = parsed
+        if _is_local_external_volume(
+            fsys,
+            mount,
+            exclude_volumes=exclude_volumes,
+            is_readonly=is_readonly,
+            is_timemachine=is_timemachine,
+        ):
+            mounts.append(mount)
+    return mounts
+
+
+def primary_volume(df_text: str | None = None) -> str:
+    """Primary internal volume mount from `df -kl` (/System/Volumes/Data, else /)."""
+    text = df_text if df_text is not None else run(["df", "-kl"], timeout=3.0)
+    mounts = [row[2] for row in (_parse_df_mount(line) for line in str(text or "").splitlines()[1:]) if row is not None]
+    if INTERNAL_VOLUME in mounts:
+        return INTERNAL_VOLUME
+    if "/" in mounts:
+        return "/"
+    return INTERNAL_VOLUME
+
+
+def volume_category_spec(mount: str) -> tuple[dict[str, list[str]], dict[str, dict[str, object]]]:
+    """Category registry for one volume.
+
+    The internal volume uses the home-based registry above. External volumes get
+    the same categories rooted at the mount point — they are data-driven, so a
+    drive without Pictures or Developer simply reports fewer segments, and a
+    drive that is not mounted reports none at all. iCloud Drive and iOS files
+    are home-only concepts and stay internal-only. macOS keeps a per-volume
+    trash in `.Trashes` and root-owned metadata folders in `.Spotlight-V100` etc.
+    """
+    if mount in (INTERNAL_VOLUME, "/"):
+        return STORAGE_CATEGORY_DIRS, STORAGE_CATEGORY_RESIDUALS
+    m = mount.rstrip("/") or "/"
+    dirs = {
+        "applications": [f"{m}/Applications"],
+        "developer": [f"{m}/Developer", f"{m}/Library/Developer"],
+        "photos": [f"{m}/Pictures"],
+        "media": [f"{m}/Music", f"{m}/Movies"],
+        "mail": [f"{m}/Library/Mail"],
+        "messages": [f"{m}/Library/Messages"],
+        "trash": [f"{m}/.Trashes"],
+    }
+    residuals = {
+        "documents": {
+            "base": m,
+            "exclude": [
+                f"{m}/Applications",
+                f"{m}/Developer",
+                f"{m}/Library",
+                f"{m}/Pictures",
+                f"{m}/Music",
+                f"{m}/Movies",
+                f"{m}/.Trashes",
+                f"{m}/.Spotlight-V100",
+                f"{m}/.fseventsd",
+                f"{m}/.DocumentRevisions-V100",
+                f"{m}/.TemporaryItems",
+            ],
+        },
+    }
+    return dirs, residuals
+
+
+def _dir_state(path: str) -> str:
+    """"ok" / "denied" / "missing" for one path; probes directory readability (TCC / chmod 000)."""
+    try:
+        st = os.lstat(path)
+    except PermissionError:
+        return "denied"
+    except OSError:
+        return "missing"
+    if stat.S_ISDIR(st.st_mode):
+        try:
+            with os.scandir(path) as it:
+                next(it, None)
+        except PermissionError:
+            return "denied"
+        except OSError:
+            return "missing"
+    return "ok"
+
+
+def _path_dev(path: str) -> int | None:
+    try:
+        return os.stat(path).st_dev
+    except OSError:
+        return None
+
+
+def _default_list_dir(path: str) -> list[str]:
+    with os.scandir(path) as it:
+        return sorted(entry.path for entry in it)
+
+
+def parse_du_output(text: str) -> dict[str, int]:
+    """`du -sk` output ("KB<TAB>path" lines) into {path: kilobytes}."""
+    sizes: dict[str, int] = {}
+    for line in str(text or "").splitlines():
+        kb, sep, path = line.partition("\t")
+        if sep and path and kb.isdigit():
+            sizes[path] = int(kb)
+    return sizes
+
+
+def _run_du(paths: list[str]) -> tuple[str, int]:
+    """Run `du -xsk` with a longer bound than fast probes.
+
+    Benign FileProvider/CloudStorage placeholder errors ("Resource deadlock
+    avoided") are normalized to exit 0 so real permission denials stay distinct.
+    """
+    if not paths:
+        return "", 0
+    try:
+        proc = subprocess.Popen(
+            ["du", "-xsk", *paths],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError:
+        return "", 1
+    try:
+        stdout, stderr = proc.communicate(timeout=STORAGE_CATEGORY_DU_TIMEOUT_S)
+    except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
+        _kill_command(proc)
+        _abandon(proc)
+        return "", 1
+    code = proc.returncode or 0
+    if code != 0:
+        err_lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+        if err_lines and all(_BENIGN_DU_STDERR in line for line in err_lines):
+            code = 0
+    return stdout or "", code
+
+
+def _scan_volume_categories(
+    mount: str,
+    *,
+    config: dict[str, object] | None = None,
+    dir_state=_dir_state,
+    du_runner=_run_du,
+    list_dir=None,
+    path_dev=_path_dev,
+    home: object = _UNSET,
+) -> list[dict[str, object]]:
+    """One volume's categories from du; restricted marks partially readable categories."""
+    cfg = config or {}
+    scan_home = _resolve_scan_home(cfg.get("home")) if home is _UNSET else home  # type: ignore[arg-type]
+    if mount in (INTERNAL_VOLUME, "/") and not scan_home:
+        return []
+
+    mount_dev = path_dev(mount)
+
+    def on_this_volume(path: str) -> bool:
+        if mount_dev is None:
+            return True
+        p_dev = path_dev(path)
+        return p_dev is None or p_dev == mount_dev
+
+    registry, residuals = volume_category_spec(mount)
+    merged_registry: dict[str, list[str]] = {cat: list(dirs) for cat, dirs in registry.items()}
+    extra_paths = cfg.get("extra_paths") or {}
+    if isinstance(extra_paths, dict):
+        for cat, paths in extra_paths.items():
+            if cat not in residuals:
+                merged_registry.setdefault(cat, []).extend(paths)
+
+    expanded: dict[str, list[str]] = {}
+    all_direct_paths: set[str] = set()
+    for category, dirs in merged_registry.items():
+        seen: set[str] = set()
+        resolved_dirs: list[str] = []
+        for raw_path in dirs:
+            exp = expand_category_path(raw_path, home=scan_home)
+            if not exp:
+                continue
+            norm = os.path.normpath(exp)
+            if norm in seen or not on_this_volume(norm):
+                continue
+            seen.add(norm)
+            resolved_dirs.append(norm)
+            all_direct_paths.add(norm)
+        expanded[category] = resolved_dirs
+
+    measured: dict[str, dict[str, object]] = {}
+    measured_path_kb: dict[str, int] = {}
+
+    for category, dirs in expanded.items():
+        existing = [p for p in dirs if dir_state(p) != "missing"]
+        if not existing:
+            continue
+        states = {p: dir_state(p) for p in existing}
+        text, du_code = du_runner(existing)
+        sizes = parse_du_output(text)
+        for p in existing:
+            if p in sizes:
+                measured_path_kb[p] = sizes[p]
+        kb = sum(sizes.get(p, 0) for p in existing)
+        restricted = (
+            any(states[p] == "denied" for p in existing)
+            or du_code != 0
+            or any(states[p] == "ok" and p not in sizes for p in existing)
+        )
+        entry: dict[str, object] = {"id": category, "megabytes": int(round(kb / 1024))}
+        if restricted:
+            entry["restricted"] = True
+        measured[category] = entry
+
+    for category, spec in residuals.items():
+        base_exp = expand_category_path(str(spec["base"]), home=scan_home)
+        if not base_exp:
+            continue
+        base = os.path.normpath(base_exp)
+        base_state = dir_state(base)
+        if base_state == "missing" or not on_this_volume(base):
+            continue  # absent base or different volume -> nothing to attribute
+        if base_state == "denied":
+            if mount not in (INTERNAL_VOLUME, "/"):
+                measured[category] = {"id": category, "megabytes": 0, "restricted": True}
+            continue
+        exclude_set: set[str] = set()
+        for raw_ex in spec.get("exclude", []):  # type: ignore[union-attr]
+            ex = expand_category_path(str(raw_ex), home=scan_home)
+            if ex:
+                exclude_set.add(os.path.normpath(ex))
+        for direct_path in all_direct_paths:
+            if os.path.dirname(direct_path) == base:
+                exclude_set.add(direct_path)
+        try:
+            raw_entries = (list_dir or _default_list_dir)(base)
+        except PermissionError:
+            measured[category] = {"id": category, "megabytes": 0, "restricted": True}
+            continue
+        except OSError:
+            continue
+        entries = [
+            norm
+            for norm in (os.path.normpath(p) for p in raw_entries)
+            if norm not in exclude_set and on_this_volume(norm)
+        ]
+        if not entries:
+            continue
+        child_states = {p: dir_state(p) for p in entries}
+        denied_any = any(st == "denied" for st in child_states.values())
+        ok_entries = [p for p, st in child_states.items() if st == "ok"]
+        if not ok_entries and not denied_any:
+            continue
+        sizes = {}
+        any_du_err = False
+        for idx in range(0, len(ok_entries), STORAGE_CATEGORY_DU_BATCH):
+            batch = ok_entries[idx:idx + STORAGE_CATEGORY_DU_BATCH]
+            text, du_code = du_runner(batch)
+            if du_code != 0:
+                any_du_err = True
+            sizes.update(parse_du_output(text))
+        total_kb = sum(sizes.get(p, 0) for p in ok_entries)
+        nested_kb = sum(
+            kb
+            for direct_path, kb in measured_path_kb.items()
+            if any(direct_path.startswith(item.rstrip("/") + "/") for item in ok_entries)
+        )
+        docs_kb = max(0, total_kb - nested_kb)
+        restricted = denied_any or any_du_err or any(p not in sizes for p in ok_entries)
+        entry = {"id": category, "megabytes": int(round(docs_kb / 1024))}
+        if restricted:
+            entry["restricted"] = True
+        measured[category] = entry
+
+    ordered = [c for c in STORAGE_CATEGORY_ORDER if c in measured]
+    ordered += [c for c in measured if c not in STORAGE_CATEGORY_ORDER]
+    return [measured[c] for c in ordered]
+
+
+def storage_category_scan(
+    volumes: list[str] | None = None,
+    *,
+    config: dict[str, object] | None = None,
+    dir_state=_dir_state,
+    du_runner=_run_du,
+    df_text: str | None = None,
+    list_dir=None,
+    path_dev=_path_dev,
+) -> list[dict[str, object]]:
+    """Per-volume category breakdowns, one entry per volume that measured anything."""
+    cfg = config or {}
+    if volumes is None:
+        volumes = [primary_volume(df_text=df_text)]
+        if cfg.get("external_volumes", True):
+            exclude_vols = cfg.get("exclude_volumes")
+            volumes.extend(external_volumes(df_text=df_text, exclude_volumes=exclude_vols))  # type: ignore[arg-type]
+    result: list[dict[str, object]] = []
+    for mount in volumes:
+        categories = _scan_volume_categories(
+            mount,
+            config=cfg,
+            dir_state=dir_state,
+            du_runner=du_runner,
+            list_dir=list_dir,
+            path_dev=path_dev,
+        )
+        if categories:
+            result.append({"volume": mount, "categories": categories})
+    return result
+
+
+class StorageCategoryProbe:
+    """Keeps a recent category scan in the background so requests never wait for du."""
+
+    def __init__(
+        self,
+        interval: float = STORAGE_CATEGORY_SCAN_TTL_S,
+        *,
+        config: dict[str, object] | None = None,
+        retry_interval: float = STORAGE_CATEGORY_RETRY_S,
+    ):
+        self._interval = max(1.0, interval)
+        self._retry_interval = max(0.05, min(retry_interval, self._interval))
+        self._config = config
+        self._lock = threading.Lock()
+        self._sample: list[dict[str, object]] | None = None
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._loop, name="storage-category-probe", daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            ok = self._refresh()
+            delay = self._interval if ok else self._retry_interval
+            if self._stop.wait(delay):
+                break
+
+    def _refresh(self) -> bool:
+        started = time.monotonic()
+        try:
+            sample = storage_category_scan(config=self._config)
+        except Exception:
+            traceback.print_exc()
+            print("sparkdash-mac-agent: storage-category scan failed", file=sys.stderr, flush=True)
+            return False
+        with self._lock:
+            self._sample = sample
+        print(
+            f"sparkdash-mac-agent: storage categories refreshed in {time.monotonic() - started:.1f}s "
+            f"({sum(len(v.get('categories') or []) for v in sample)} categories "
+            f"on {len(sample)} volumes)",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+
+    def sample(self) -> list[dict[str, object]] | None:
+        with self._lock:
+            if self._sample is not None:
+                return self._sample
+            background = self._thread is not None
+        if background:
+            return None
+        try:
+            sample = storage_category_scan(config=self._config)
+        except Exception:
+            return None
+        with self._lock:
+            self._sample = sample
+        return sample
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+_FDA_CHECK_PATHS = (
+    "~/Documents",
+    "~/Desktop",
+    "~/Downloads",
+    "~/Pictures",
+    "~/Pictures/Photos Library.photoslibrary",
+    "~/.Trash",
+    "~/Library/Mail",
+    "~/Library/Messages",
+)
+
+
+BRANDED_APP_BUNDLE_NAME = "SparkDash Mac Agent.app"
+
+
+def resolve_fda_target(
+    executable: str | None = None,
+    comm: str | None = None,
+    installed_app: str | Path | None = None,
+) -> str:
+    """Resolve the single macOS .app bundle or binary that needs Full Disk Access.
+
+    When `SparkDash Mac Agent.app` has been installed alongside the agent (by
+    `install-privileged-collector.sh --storage-categories`), prefer that branded
+    bundle so Full Disk Access uses one consistent entry across every Mac.
+    Otherwise resolve the outermost `.app` bundle (e.g. `Xcode.app` rather than
+    nested `Python.app`) or realpath interpreter binary.
+    """
+    if executable is None and comm is None:
+        candidates = (
+            [Path(installed_app)]
+            if installed_app is not None
+            else [
+                Path(__file__).resolve().parent / BRANDED_APP_BUNDLE_NAME,
+                Path("/Library/Application Support/ai.onyx.sparkdash-mac-agent") / BRANDED_APP_BUNDLE_NAME,
+            ]
+        )
+        for app_path in candidates:
+            if app_path.is_dir():
+                return str(app_path)
+    if comm is None:
+        comm = run(["ps", "-p", str(os.getpid()), "-o", "comm="], timeout=2.0).strip()
+    candidate = comm if comm and comm.startswith("/") else (executable or sys.executable)
+    resolved = os.path.realpath(candidate) if candidate else ""
+    if resolved:
+        cur = Path(resolved)
+        for parent in reversed((cur, *cur.parents)):
+            if parent.name.endswith(".app"):
+                return str(parent)
+    fallback = executable or sys.executable
+    if fallback:
+        resolved_fb = os.path.realpath(fallback)
+        cur = Path(resolved_fb)
+        for parent in reversed((cur, *cur.parents)):
+            if parent.name.endswith(".app"):
+                return str(parent)
+        return resolved_fb
+    return resolved
+
+
+def setup_fda(
+    *,
+    home: str | None = None,
+    open_ui: bool | None = None,
+    opener=subprocess.run,
+    dir_state=_dir_state,
+) -> int:
+    """Print the single Full Disk Access target and optionally open Finder + Settings."""
+    target = resolve_fda_target()
+    scan_home = home or _resolve_scan_home()
+    checks: list[tuple[str, str]] = []
+    for raw in _FDA_CHECK_PATHS:
+        expanded = expand_category_path(raw, home=scan_home)
+        if expanded:
+            checks.append((expanded, dir_state(expanded)))
+    print(f"Full Disk Access target: {target}")
+    for path, state in checks:
+        print(f"  {state:7s}  {path}")
+    any_denied = any(state == "denied" for _, state in checks)
+    should_open = (
+        (sys.platform == "darwin" and not os.environ.get("SSH_CONNECTION"))
+        if open_ui is None
+        else open_ui
+    )
+    if should_open:
+        opener(["open", "-R", target], check=False)
+        opener(
+            ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+            check=False,
+        )
+        print("Opened Finder and Privacy & Security -> Full Disk Access.")
+        print("Drag the highlighted item into Full Disk Access, turn it on, then restart the agent/daemon.")
+    elif any_denied:
+        print(f"Add {target} under System Settings -> Privacy & Security -> Full Disk Access, then restart the agent/daemon.")
+    if not any_denied:
+        print(
+            "All checked folders are readable in this session (if running from Terminal/SSH, "
+            "access may be inherited from your terminal app). Ensure the background daemon "
+            f"also has {target} enabled in Full Disk Access (`install-privileged-collector.sh "
+            "--storage-categories` creates and launches SparkDash Mac Agent.app so every Mac uses one consistent entry)."
+        )
+    return 0
 
 
 def default_interface() -> str | None:
@@ -1136,6 +1831,7 @@ def parse_pmset_therm(text: str) -> dict[str, object]:
 
 def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
                      cpu_probe: CpuProbe | None = None,
+                     storage_probe: StorageCategoryProbe | None = None,
                      procs: dict[int, dict[str, object]] | None = None,
                      listeners: dict[int, list[dict[str, object]]] | None = None,
                      elevated: bool | None = None,
@@ -1209,6 +1905,26 @@ def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
     if uptime is None:
         unavailable.append({"metric": "uptime", "reason": "kern.boottime unreadable"})
 
+    storage_cfg = getattr(storage_probe, "_config", None) if storage_probe else None
+    include_external = bool(storage_probe is not None and (storage_cfg or {}).get("external_volumes", True))
+    exclude_volumes = (storage_cfg or {}).get("exclude_volumes")
+    disks = disk_stats(include_external=include_external, exclude_volumes=exclude_volumes)
+    volumes = storage_probe.sample() if storage_probe else None
+    if volumes:
+        by_volume = {v.get("volume"): v.get("categories") or [] for v in volumes if isinstance(v, dict)}
+        for disk in disks:
+            cats = by_volume.get(disk.get("label"))
+            if not cats:
+                continue
+            # System Data is the residual: whatever df counts as used on that
+            # volume that the category scan could not attribute. Restricted
+            # categories still carry their partial numbers, so the residual
+            # never hides them.
+            measured = sum(int(c.get("megabytes") or 0) for c in cats)
+            disk["categories"] = [
+                *cats,
+                {"id": "systemData", "megabytes": max(0, int(disk["used"]) - measured)},
+            ]
     return {
         "schema": SCHEMA,
         "agentVersion": AGENT_VERSION,
@@ -1227,7 +1943,7 @@ def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
             "source": cpu.get("source"),
         },
         "memory": memory,
-        "disks": disk_stats(),
+        "disks": disks,
         "network": network,
         "gpu": {
             **gpu,
@@ -1259,10 +1975,13 @@ class SampleCache:
     """
 
     def __init__(self, inventory: dict[str, object], allow_powermetrics: bool,
-                 cpu_probe: CpuProbe | None = None, ttl: float = SAMPLE_TTL_S):
+                 cpu_probe: CpuProbe | None = None,
+                 storage_probe: StorageCategoryProbe | None = None,
+                 ttl: float = SAMPLE_TTL_S):
         self._inventory = inventory
         self._allow_powermetrics = allow_powermetrics
         self._cpu_probe = cpu_probe
+        self._storage_probe = storage_probe
         self._ttl = ttl
         self._lock = threading.Lock()
         self._sample: dict[str, object] | None = None
@@ -1288,6 +2007,7 @@ class SampleCache:
                 self._inventory,
                 allow_powermetrics=self._allow_powermetrics,
                 cpu_probe=self._cpu_probe,
+                storage_probe=self._storage_probe,
             )
         except Exception:
             sample = None
@@ -1484,6 +2204,8 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--once", action="store_true", help="print one JSON snapshot and exit")
     mode.add_argument("--serve", action="store_true", help="serve /metrics over HTTP (launchd)")
+    mode.add_argument("--setup-fda", action="store_true",
+                      help="show the exact Full Disk Access target and open System Settings")
     parser.add_argument("--host", default=DEFAULT_HOST, help="bind address for --serve")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="bind port for --serve")
     parser.add_argument("--config", default=os.environ.get("SPARKDASH_RUNTIMES", str(DEFAULT_INVENTORY)),
@@ -1492,29 +2214,43 @@ def main(argv: list[str] | None = None) -> int:
                         help="runtime control catalog JSON; missing means control is unavailable")
     parser.add_argument("--powermetrics", action="store_true",
                         help="attempt powermetrics even when not root (needs sudo -n)")
+    parser.add_argument("--storage-categories", action="store_true",
+                        help="enable Apple-style disk category scans (default: from inventory JSON)")
+    parser.add_argument("--no-open", action="store_true",
+                        help="with --setup-fda, print target and folder access without opening UI")
     parser.add_argument("--sample-interval", type=float, default=SAMPLE_TTL_S,
                         help="background CPU sampling interval for --serve")
     parser.add_argument("--pretty", action="store_true", help="indent --once output")
     args = parser.parse_args(argv)
 
+    if args.setup_fda:
+        return setup_fda(open_ui=False if args.no_open else None)
+
     inventory = load_inventory(Path(args.config))
     allow_powermetrics = args.powermetrics or os.geteuid() == 0
+    storage_cfg = storage_category_config(inventory, cli_enabled=args.storage_categories)
+    storage_probe = StorageCategoryProbe(config=storage_cfg) if storage_cfg is not None else None
 
     if args.serve:
         probe = CpuProbe(interval=args.sample_interval)
         probe.start()
+        if storage_probe is not None:
+            storage_probe.start()
         try:
             serve(
                 args.host,
                 args.port,
-                SampleCache(inventory, allow_powermetrics, probe),
+                SampleCache(inventory, allow_powermetrics, probe, storage_probe),
                 build_runtime_control(inventory, Path(args.control)),
             )
         finally:
             probe.stop()
+            if storage_probe is not None:
+                storage_probe.stop()
         return 0
 
-    snapshot = collect_snapshot(inventory, allow_powermetrics=allow_powermetrics)
+    snapshot = collect_snapshot(inventory, allow_powermetrics=allow_powermetrics,
+                                storage_probe=storage_probe)
     json.dump(snapshot, sys.stdout, indent=2 if args.pretty else None, sort_keys=False)
     sys.stdout.write("\n")
     return 0
