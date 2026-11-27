@@ -3,6 +3,11 @@ dist/
 .env
 sparks.json
 config/sparks-secrets.json
+# Local backups of the unit list (sparks.json.bak-<date>, etc.). Operators keep
+# these when hand-editing config/sparks.json; they are machine state, not source.
+config/sparks.json.*
+config/*.bak
+config/*.bak-*
 config/storage-sudo.json
 config/storage-scans.json
 config/storage-acks.json

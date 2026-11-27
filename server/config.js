@@ -94,7 +94,17 @@ const MAX_ACTIVE_BENCH_JOBS = parseMaxActiveBenchJobs(process.env.MAX_ACTIVE_BEN
 const COMFY_PROBE_TIMEOUT_MS = parseInt(process.env.COMFY_PROBE_TIMEOUT_MS || "3000", 10);
 const TAILSCALE_PROBE_TIMEOUT_MS = parseInt(process.env.TAILSCALE_PROBE_TIMEOUT_MS || "8000", 10);
 const ATTIC_PROBE_TIMEOUT_MS = parseInt(process.env.ATTIC_PROBE_TIMEOUT_MS || "8000", 10);
-const SSH_CONNECT_TIMEOUT = 5; // seconds
+/**
+ * SSH connect timeout, in seconds. The default suits LAN and healthy Tailscale
+ * links. A unit reached over a DERP relay (no direct path) can spend 300-900 ms
+ * per hop, so a 5 s budget intermittently loses the handshake and the unit flaps
+ * online/offline; SSH_CONNECT_TIMEOUT lets such an install widen it. Clamped to
+ * 2-120 so a bad value cannot stall a collector tick.
+ */
+const SSH_CONNECT_TIMEOUT = (() => {
+  const n = Number.parseInt(String(process.env.SSH_CONNECT_TIMEOUT ?? ""), 10);
+  return Number.isInteger(n) ? Math.min(120, Math.max(2, n)) : 5;
+})();
 // Reuse one authenticated SSH connection per Spark instead of dialing a new one
 // for every collector tick. Set SSH_MULTIPLEX=0 to go back to one connection
 // per command (e.g. an sshd with `MaxSessions 1`).

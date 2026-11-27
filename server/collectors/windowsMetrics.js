@@ -136,7 +136,14 @@ export const WINDOWS_SYSTEM_SCRIPT = [
   "'---'",
   "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'|%{@((Cl $_.DeviceID),(Cl $_.VolumeName),$_.Size,$_.FreeSpace) -join $t}",
   "'---'",
-  "(Get-NetRoute -DestinationPrefix '0.0.0.0/0'|Sort-Object RouteMetric|Select-Object -First 1).InterfaceAlias",
+  // Two connected adapters (a cable and Wi-Fi) routinely both report RouteMetric 0,
+  // and Sort-Object is not stable, so the first line was whichever the cmdlet
+  // happened to emit - often Wi-Fi even when the cable carries the traffic. That
+  // made the default interface (and the link-speed health check) point at the
+  // slower adapter. InterfaceMetric is the OS's own ordering, so use it as the
+  // tie-break; with a single default route this changes nothing.
+  "$ifm=@{};Get-NetIPInterface -AddressFamily IPv4|%{$ifm[$_.InterfaceAlias]=$_.InterfaceMetric}",
+  "(Get-NetRoute -DestinationPrefix '0.0.0.0/0'|Sort-Object RouteMetric,@{Expression={$ifm[$_.InterfaceAlias]}}|Select-Object -First 1).InterfaceAlias",
   "'---'",
   "$st=@{};Get-NetAdapterStatistics|%{$st[$_.Name]=$_}",
   "$ip=@{};Get-NetIPAddress -AddressFamily IPv4|%{if(-not $ip[$_.InterfaceIndex]){$ip[$_.InterfaceIndex]=$_.IPAddress}}",
