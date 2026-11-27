@@ -18,6 +18,7 @@ Format: version sections are listed newest first.
 - More of the interface is translated into Simplified Chinese: Mac GPU thermal pressure, live LLM cache telemetry, Spark cache history and model discovery, newer Quality bench results and share categories, and fleet wall-meter labels. With three or more distinct wall meters the English label list now reads "A, B, and C". Thanks @oscarlius (#317, #318, #320, #322, #323).
 
 ### Fixed
+- **Mac agent units show live network speeds again.** The agent built its whole metrics sample in one pass (reachability probes, powermetrics, the process scan — seconds), and while a build ran, `/metrics` served the previous sample. The server polls network faster than that build (Settings ships a 1 s poll interval) and reports speed as the counter diff of consecutive responses, so two consecutive polls often carried byte-identical counters and the Network card rendered a measured 0 B/s with occasional bursts; disk I/O (a 5 s poll) and CPU (its own background probe) were unaffected. The agent now keeps a background network probe (`netstat -ib`, ~10 ms) whose counters are stamped onto every response — including serve-stale ones — and the collector takes one forced read when the response it is handed is the exact one it last diffed, so a re-served snapshot can no longer be diffed into a fake 0. Thanks @markyu0401 (#458).
 - llama-swap: the probe of the engine behind a llama-swap no longer follows a second llama-swap, so two instances whose `/running` point at each other cannot build probes without end.
 
 ### Security

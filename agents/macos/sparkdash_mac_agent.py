@@ -55,6 +55,8 @@ DEFAULT_CONTROL = Path(__file__).resolve().with_name("control.json")
 CONTROL_SCHEMA = "sparkdash.mac-control/1"
 
 SAMPLE_TTL_S = 2.0            # share one sample across close-together requests
+NETWORK_PROBE_INTERVAL_S = 1.0   # background interface counters, fresher than any poll
+NETWORK_COUNTER_MAX_AGE_S = 5.0  # probe counters older than this yield to an inline read
 CMD_TIMEOUT_S = 4.0
 MAX_CMD_TIMEOUT_S = 8.0    # one probe may be slow; it may not be unbounded
 COLLECT_DEADLINE_S = 12.0  # /metrics must answer even if a probe ignores its timeout
@@ -388,6 +390,65 @@ class CpuProbe:
         self._stop.set()
 
 
+class NetworkProbe:
+    """Keeps fresh interface byte counters in the background.
+
+    The whole-sample build takes seconds and SampleCache serves the previous
+    sample while one runs, so counters read inline during a build can be
+    byte-identical across the server's 2 s network polls — the collector diffs
+    them into a measured 0 B/s. `netstat -ib` is a ~10 ms read, so the probe
+    samples it on its own clock and every response can carry moving counters.
+    """
+
+    def __init__(self, interval: float = NETWORK_PROBE_INTERVAL_S):
+        self._interval = max(0.5, interval)
+        self._lock = threading.Lock()
+        self._counters: dict[str, object] | None = None
+        self._iface: str | None = None
+        self._at = 0.0
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._loop, name="network-probe", daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self._interval):
+            try:
+                self._refresh()
+            except Exception:
+                continue  # a failed read keeps the last counters; the age guard decides freshness
+
+    def _refresh(self) -> None:
+        iface = default_interface()
+        if not iface:
+            return
+        counters = parse_netstat_bytes(run(["netstat", "-ib", "-I", iface], timeout=3.0))
+        if counters is None:
+            return
+        with self._lock:
+            self._counters = counters
+            self._iface = iface
+            self._at = time.monotonic()
+
+    def counters_for(self, iface: str | None,
+                     max_age: float = NETWORK_COUNTER_MAX_AGE_S) -> dict[str, object] | None:
+        """Counters sampled for `iface`, or None when absent, stale, or for another link."""
+        with self._lock:
+            counters, probed, at = self._counters, self._iface, self._at
+        if counters is None or not iface or probed != iface:
+            return None
+        if time.monotonic() - at > max_age:
+            return None
+        return counters
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 
 def disk_stats() -> list[dict[str, object]]:
     """Mounted volumes in MB from `df -k` (the sealed system volume yields to the data volume)."""
@@ -444,15 +505,21 @@ def parse_netstat_bytes(text: str) -> dict[str, object] | None:
     return None
 
 
-def network_stats() -> tuple[dict[str, object] | None, list[str]]:
-    """Primary interface counters + address, or None when the Mac has no route."""
+def network_stats(probe: "NetworkProbe | None" = None) -> tuple[dict[str, object] | None, list[str]]:
+    """Primary interface counters + address, or None when the Mac has no route.
+
+    With a probe, counters come from its background read so a slow build never
+    serves the same bytes twice; without one (`--once`), they are read inline.
+    """
     notes: list[str] = []
     iface = default_interface()
     if not iface:
         notes.append("no default route")
         return None, notes
-    text = run(["netstat", "-ib", "-I", iface], timeout=3.0)
-    counters = parse_netstat_bytes(text)
+    counters = probe.counters_for(iface) if probe else None
+    if counters is None:
+        text = run(["netstat", "-ib", "-I", iface], timeout=3.0)
+        counters = parse_netstat_bytes(text)
     if counters is None:
         notes.append(f"no link counters for {iface}")
         return None, notes
@@ -1136,6 +1203,7 @@ def parse_pmset_therm(text: str) -> dict[str, object]:
 
 def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
                      cpu_probe: CpuProbe | None = None,
+                     network_probe: NetworkProbe | None = None,
                      procs: dict[int, dict[str, object]] | None = None,
                      listeners: dict[int, list[dict[str, object]]] | None = None,
                      elevated: bool | None = None,
@@ -1162,7 +1230,7 @@ def collect_snapshot(inventory: dict[str, object], *, allow_powermetrics: bool,
     memory["swap"] = parse_swap_usage(memsize.get("vm.swapusage"))
     memory["source"] = "vm_stat"
 
-    network, network_notes = network_stats()
+    network, network_notes = network_stats(network_probe)
     for note in network_notes:
         unavailable.append({"metric": "network", "reason": note})
     reachability = probe_reachability()
@@ -1255,14 +1323,18 @@ class SampleCache:
 
     Collection does not hold the request lock. A probe that is still running
     serves the previous sample (or a short collecting snapshot) so /metrics
-    cannot wedge behind one blocked command.
+    cannot wedge behind one blocked command. Interface byte counters ride a
+    background NetworkProbe, so even a served-stale sample carries counters
+    that advance between the server's polls.
     """
 
     def __init__(self, inventory: dict[str, object], allow_powermetrics: bool,
-                 cpu_probe: CpuProbe | None = None, ttl: float = SAMPLE_TTL_S):
+                 cpu_probe: CpuProbe | None = None, network_probe: NetworkProbe | None = None,
+                 ttl: float = SAMPLE_TTL_S):
         self._inventory = inventory
         self._allow_powermetrics = allow_powermetrics
         self._cpu_probe = cpu_probe
+        self._network_probe = network_probe
         self._ttl = ttl
         self._lock = threading.Lock()
         self._sample: dict[str, object] | None = None
@@ -1275,6 +1347,7 @@ class SampleCache:
         age = max(0, time.monotonic() - self._at)
         stale = age >= self._ttl
         response = {**self._sample, "sampleAgeSeconds": age, "sampleStale": stale}
+        response = self._overlay_network_counters(response)
         if stale:
             response["unavailable"] = [
                 *self._sample.get("unavailable", []),
@@ -1282,12 +1355,38 @@ class SampleCache:
             ]
         return response
 
+    def _overlay_network_counters(self, response: dict[str, object]) -> dict[str, object]:
+        """Stamp the probe's latest byte counters onto the served sample.
+
+        The cached sample can be seconds old (serve-stale while a build runs),
+        and a server polling network faster than the build diffs the same
+        counters twice into a measured 0 B/s. The probe's read is never older
+        than its interval, so every response carries moving counters. The
+        cached sample itself is left untouched — responses are fresh dicts.
+        """
+        probe = self._network_probe
+        network = response.get("network")
+        if probe is None or not isinstance(network, dict):
+            return response
+        interfaces = network.get("interfaces")
+        if not isinstance(interfaces, list) or not interfaces or not isinstance(interfaces[0], dict):
+            return response
+        counters = probe.counters_for(interfaces[0].get("name"))
+        if counters is None:
+            return response
+        primary = dict(interfaces[0])
+        primary["rxBytes"] = counters["rxBytes"]
+        primary["txBytes"] = counters["txBytes"]
+        network = {**network, "interfaces": [primary, *interfaces[1:]]}
+        return {**response, "network": network}
+
     def _collect(self) -> None:
         try:
             sample = collect_snapshot(
                 self._inventory,
                 allow_powermetrics=self._allow_powermetrics,
                 cpu_probe=self._cpu_probe,
+                network_probe=self._network_probe,
             )
         except Exception:
             sample = None
@@ -1501,17 +1600,20 @@ def main(argv: list[str] | None = None) -> int:
     allow_powermetrics = args.powermetrics or os.geteuid() == 0
 
     if args.serve:
-        probe = CpuProbe(interval=args.sample_interval)
-        probe.start()
+        cpu_probe = CpuProbe(interval=args.sample_interval)
+        cpu_probe.start()
+        network_probe = NetworkProbe()
+        network_probe.start()
         try:
             serve(
                 args.host,
                 args.port,
-                SampleCache(inventory, allow_powermetrics, probe),
+                SampleCache(inventory, allow_powermetrics, cpu_probe, network_probe),
                 build_runtime_control(inventory, Path(args.control)),
             )
         finally:
-            probe.stop()
+            network_probe.stop()
+            cpu_probe.stop()
         return 0
 
     snapshot = collect_snapshot(inventory, allow_powermetrics=allow_powermetrics)
