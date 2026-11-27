@@ -344,8 +344,20 @@ export class MacAgentCollector extends MacSystemCollector {
   }
 
   async collectNetwork() {
-    const snapshot = await this._agentSnapshot();
+    let snapshot = await this._agentSnapshot();
     if (!snapshot) return super.collectNetwork();
+    // Network speed is a diff of consecutive responses, so re-serving one
+    // cached response twice would diff identical counters into a measured
+    // 0 B/s. The 1.5 s response cache can do exactly that: Settings ships a
+    // 1 s poll interval, faster than the cache TTL. When the served response
+    // is the one this collector last diffed, take one forced read — the
+    // agent's network probe re-stamps counters on every response, so it moves.
+    const lastDiffed = this._lastNet;
+    const served = snapshot.network?.interfaces?.[0];
+    if (lastDiffed && served && served.name === lastDiffed.name
+        && served.rxBytes === lastDiffed.rxBytes && served.txBytes === lastDiffed.txBytes) {
+      snapshot = (await this._agentSnapshot(true)) ?? snapshot;
+    }
     const network = snapshot.network;
     if (!network || !Array.isArray(network.interfaces) || network.interfaces.length === 0) {
       // The agent answered, and the answer is "no usable link" — say so rather

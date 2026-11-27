@@ -38,6 +38,14 @@ def fixture(name: str) -> str:
     return (FIXTURES / name).read_text("utf-8")
 
 
+def netstat_text(rx: int, tx: int) -> str:
+    """A `netstat -ib -I <iface>` link row with the given byte counters."""
+    return (
+        "Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll\n"
+        f"en1        1500  <Link#9>    ab:cd:ef:00:11    100     0   {rx}     90     0   {tx}     0\n"
+    )
+
+
 def proc(pid: int, argv: str, ppid: int = 1) -> dict:
     argv_list = argv.split()
     return {
@@ -759,6 +767,110 @@ class ServeTests(unittest.TestCase):
             agent.collect_snapshot = original
 
 
+
+
+class NetworkProbeTests(unittest.TestCase):
+    def test_probe_serves_counters_for_its_interface_only(self):
+        probe = agent.NetworkProbe()
+        with patch.object(agent, "default_interface", return_value="en1"), \
+             patch.object(agent, "run", lambda cmd, timeout=1: netstat_text(10, 20)):
+            probe._refresh()
+        self.assertEqual(probe.counters_for("en1"), {"name": "en1", "rxBytes": 10, "txBytes": 20})
+        self.assertIsNone(probe.counters_for("en0"))
+        self.assertIsNone(probe.counters_for(None))
+
+    def test_probe_counters_expire_past_the_max_age(self):
+        probe = agent.NetworkProbe()
+        with patch.object(agent, "default_interface", return_value="en1"), \
+             patch.object(agent, "run", lambda cmd, timeout=1: netstat_text(10, 20)):
+            probe._refresh()
+        self.assertIsNotNone(probe.counters_for("en1"))
+        future = probe._at + agent.NETWORK_COUNTER_MAX_AGE_S + 0.5
+        with patch.object(agent.time, "monotonic", return_value=future):
+            self.assertIsNone(probe.counters_for("en1"), "a dead probe must not pin old counters forever")
+
+    def test_network_stats_reads_the_probe_and_falls_back_inline(self):
+        probe = agent.NetworkProbe()
+        with patch.object(agent, "default_interface", return_value="en1"), \
+             patch.object(agent, "run", lambda cmd, timeout=1: netstat_text(10, 20)):
+            probe._refresh()
+
+        def no_inline_netstat(cmd, timeout=1):
+            if cmd[0] == "netstat":
+                raise AssertionError("fresh probe counters must not trigger an inline netstat")
+            return "192.168.9.6\n"
+
+        with patch.object(agent, "default_interface", return_value="en1"), \
+             patch.object(agent, "run", no_inline_netstat):
+            network, notes = agent.network_stats(probe)
+        self.assertEqual(network["interfaces"][0]["rxBytes"], 10)
+        self.assertEqual(network["interfaces"][0]["ip"], "192.168.9.6")
+        self.assertEqual(notes, [])
+
+        cold = agent.NetworkProbe()  # never refreshed: the one-shot inline read still works
+        def netstat_only(cmd, timeout=1):
+            return netstat_text(30, 40) if cmd[0] == "netstat" else "192.168.9.7\n"
+
+        with patch.object(agent, "default_interface", return_value="en1"), \
+             patch.object(agent, "run", netstat_only):
+            network, notes = agent.network_stats(cold)
+        self.assertEqual(network["interfaces"][0]["rxBytes"], 30)
+
+    def test_served_sample_stamps_moving_network_counters_even_when_serve_stale(self):
+        """The regression behind Network 0 B/s: a server polling faster than the
+        build must never diff the same byte counters twice, on either serve path."""
+        release = threading.Event()
+
+        def collect(inventory, **kwargs):
+            release.wait(2)
+            return {
+                "schema": agent.SCHEMA,
+                "network": {"primaryInterface": "en1",
+                            "interfaces": [{"name": "en1", "rxBytes": 100, "txBytes": 7,
+                                            "ip": "192.168.9.6", "operstate": "up"}]},
+                "unavailable": [],
+            }
+
+        probe = agent.NetworkProbe()
+
+        def drive(rx):
+            text = netstat_text(rx, rx + 5)
+            with patch.object(agent, "default_interface", return_value="en1"), \
+                 patch.object(agent, "run", lambda cmd, timeout=1: text):
+                probe._refresh()
+
+        drive(500)
+        with patch.object(agent, "collect_snapshot", side_effect=collect), \
+             patch.object(agent, "COLLECT_DEADLINE_S", 0.02):
+            cache = agent.SampleCache({}, False, network_probe=probe, ttl=60)
+            try:
+                self.assertEqual(cache.get()["status"], "pending")
+                release.set()
+                cache._worker.join(2)
+                served = cache.get()
+                self.assertEqual(served["network"]["interfaces"][0]["rxBytes"], 500,
+                                 "a fresh serve must carry the probe's counters, not the build's frozen ones")
+
+                drive(900)
+                served = cache.get()
+                self.assertEqual(served["network"]["interfaces"][0]["rxBytes"], 900)
+
+                release.clear()  # block the next build so the old sample is served stale
+                stale_now = cache._at + 61
+                with patch.object(agent.time, "monotonic", return_value=stale_now):
+                    self.assertTrue(cache.get()["sampleStale"])
+                    drive(1200)  # the probe keeps sampling on its own clock inside the stale window
+                    served = cache.get(force=True)  # worker in flight → serve-stale path
+                self.assertTrue(served["sampleStale"])
+                self.assertEqual(served["network"]["interfaces"][0]["rxBytes"], 1200,
+                                 "even a stale sample must carry advancing counters")
+
+                self.assertEqual(cache._sample["network"]["interfaces"][0]["rxBytes"], 100,
+                                 "the cached sample itself must stay untouched")
+            finally:
+                release.set()
+                if cache._worker:
+                    cache._worker.join(2)
 
 
 class ReviewRegressionTests(unittest.TestCase):

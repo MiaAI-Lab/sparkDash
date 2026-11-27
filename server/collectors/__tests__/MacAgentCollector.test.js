@@ -148,6 +148,54 @@ test("network: interface, ip, reachability probes, and counter-delta speeds", as
   );
 });
 
+test("network: a re-served cached response forces a fresh read instead of diffing identical counters into 0", async () => {
+  // Settings ships a 1 s poll interval, faster than the collector's 1.5 s
+  // response cache: the next poll re-consumes the very response the last one
+  // already diffed, and identical counters must not read as a measured 0 B/s.
+  let requests = 0;
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => {
+      requests += 1;
+      const payload = structuredClone(snapshot);
+      payload.network.interfaces[0].rxBytes = 1_000_000 + requests * 400_000;
+      payload.network.interfaces[0].txBytes = payload.network.interfaces[0].rxBytes;
+      return { ok: true, json: async () => payload };
+    },
+  });
+  const first = await collector.collectNetwork();
+  assert.equal(first.interfaces[0].rxSpeed, 0, "cold sample: no previous counters to diff");
+  assert.equal(requests, 1);
+
+  collector._lastNet.time -= 1000; // the cached response is now the one last diffed
+  const second = await collector.collectNetwork();
+  assert.equal(requests, 2, "identical counters trigger exactly one forced read");
+  assert.ok(
+    second.interfaces[0].rxSpeed >= 300_000 && second.interfaces[0].rxSpeed <= 500_000,
+    `expected ~400 KB/s from the forced read, got ${second.interfaces[0].rxSpeed}`
+  );
+});
+
+test("network: a failed forced read falls back to the served response as an honest 0", async () => {
+  let requests = 0;
+  const { collector } = collectorWith("ok", {
+    fetchImpl: async () => {
+      requests += 1;
+      if (requests > 1) throw new Error("ECONNRESET");
+      const payload = structuredClone(snapshot);
+      payload.network.interfaces[0].rxBytes = 1_000_000;
+      payload.network.interfaces[0].txBytes = 1_000_000;
+      return { ok: true, json: async () => payload };
+    },
+  });
+  const first = await collector.collectNetwork();
+  assert.equal(first.interfaces[0].rxSpeed, 0);
+  collector._lastNet.time -= 1000;
+  const second = await collector.collectNetwork();
+  assert.equal(requests, 2, "the forced read was attempted");
+  assert.equal(second.interfaces[0].rxSpeed, 0, "no movement is reported as an honest 0, not a crash");
+  assert.equal(second.primaryInterface, "en0");
+});
+
 test("runtimes: names, ports, models, and the unknown-listener row", async () => {
   const { collector } = collectorWith("ok");
   const result = await collector.collectRuntimes();
