@@ -2977,12 +2977,18 @@ export class SystemCollector {
   _windowsRun(key, script) {
     const now = Date.now();
     this._windowsCache ??= new Map();
+    // PowerShell starts slowly and Get-CimInstance is not cheap on older Windows
+    // hosts: the combined system+disk+adapter script can take over 6 s on a
+    // 10th-gen i7. A unit reached over a relay, where the first connection also
+    // pays the tunnel cost, then loses an 8 s budget and reads as offline. The
+    // budget is explicitly generous; replies are cached and shared per poll.
+    this._windowsTimeoutMs ??= 20000;
     const hit = this._windowsCache.get(key);
     // An unfinished call is always reused (PowerShell starts slowly; never stack them),
     // a finished one for ~1.2 s so every domain of one poll shares it.
     if (hit && (!hit.settled || now - hit.at < 1200)) return hit.promise;
     const entry = { at: now, settled: false, promise: null };
-    entry.promise = sshExec(this.spark, script, { timeoutMs: 15000 });
+    entry.promise = sshExec(this.spark, script, { timeoutMs: this._windowsTimeoutMs });
     entry.promise.then(
       () => {
         entry.settled = true;

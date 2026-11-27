@@ -82,6 +82,9 @@ services:
       - HOST_SYS_PATH=/host/sys
       - HOST_ROOT_PATH=/host/root
       - SSH_CONTROL_PERSIST_SECONDS=${SSH_CONTROL_PERSIST_SECONDS:-60}
+      # SSH handshake budget in seconds. Raise it for units reached over a
+      # Tailscale DERP relay, where a 5 s budget makes them flap.
+      - SSH_CONNECT_TIMEOUT=${SSH_CONNECT_TIMEOUT:-5}
       - MAX_ACTIVE_BENCH_JOBS=${MAX_ACTIVE_BENCH_JOBS:-2}
       # Cost compare opt-in: fetch the hosted-model price catalog (README: MODEL_PRICES_FETCH).
       - MODEL_PRICES_FETCH=${MODEL_PRICES_FETCH:-0}
