@@ -74,6 +74,7 @@ services:
       - SPARKDASH_APIKEYS_BRIDGE_TOKEN=${SPARKDASH_APIKEYS_BRIDGE_TOKEN:-}
       - PORT=5555
       - LLM_PORT=8888
+      - CHAT_MODEL=${CHAT_MODEL:-}
       - NODE_ENV=production
       # Opt in only if this process shares the physical host's network namespace.
       # RootlessKit can isolate the daemon even with network_mode: host above.

@@ -47,6 +47,7 @@ services:
       - SPARKDASH_APIKEYS_BRIDGE_TOKEN=${SPARKDASH_APIKEYS_BRIDGE_TOKEN:-}
       - PORT=5555
       - LLM_PORT=8888
+      - CHAT_MODEL=${CHAT_MODEL:-}
       - NODE_ENV=production
       - HOST_PROC_PATH=/host/proc
       - HOST_SYS_PATH=/host/sys

@@ -2,6 +2,7 @@
   "nav": {
     "overview": "总览",
     "tokens": "Token 总量",
+    "chat": "聊天",
     "cost": "成本对比",
     "energy": "集群能耗",
     "temps": "温度",

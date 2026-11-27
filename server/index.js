@@ -86,6 +86,7 @@ import { ToolEvalManager } from "./tooleval/ToolEvalManager.js";
 import { registerToolEvalRoutes } from "./tooleval/routes.js";
 import { registerApiKeysRoutes } from "./apiKeys/routes.js";
 import { registerTrainingProgressRoutes } from "./training/progress.js";
+import { registerChatRoutes } from "./chat.js";
 import { benchEvent } from "./events/eventFormat.js";
 import {
   createFleetEnergyRuntime,
@@ -385,6 +386,7 @@ const launcherManager = new LauncherManager({
   onEvent: (event) => recordEvent(event),
 });
 const allowLaunch = createRateLimiter(20, 60_000);
+const allowChat = createRateLimiter(20, 60_000);
 /** Launcher status reads and attach each cost an SSH exec. */
 const allowLaunchProbe = createRateLimiter(60, 60_000);
 const LAUNCHER_STATUS_TTL_MS = 10_000;
@@ -620,6 +622,15 @@ app.post("/api/restart", (_req, res) => {
   // Stopping the supervisor makes the child shut down gracefully (SIGTERM) and
   // lets Docker's restart policy start a fresh container.
   res.on("finish", () => setTimeout(() => process.kill(process.ppid, "SIGTERM"), 200).unref());
+});
+
+registerChatRoutes(app, {
+  port: LLM_PORT,
+  getApiKey: () => {
+    const local = registry.sparks.find((s) => s.isLocal) ?? registry.sparks[0];
+    return resolveLlmApiKey(local, LLM_PORT);
+  },
+  allow: (req) => allowChat(principalKey(req)),
 });
 
 app.get("/api/health", (_req, res) => {

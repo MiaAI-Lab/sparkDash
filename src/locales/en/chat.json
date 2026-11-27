@@ -1,0 +1,16 @@
+{
+  "title": "Chat",
+  "description": "One message at a time to the local model on this Spark, to check it is responsive.",
+  "placeholder": "Type a message (Enter to send, Shift+Enter for a new line)",
+  "messageAria": "Message",
+  "send": "Send",
+  "stop": "Stop",
+  "you": "You: {{prompt}}",
+  "waiting": "…",
+  "stats": "model {{model}} · TTFT {{ttft}} · {{tokens}} tokens · {{rate}} · total {{total}}",
+  "unknown": "?",
+  "ttftMs": "{{ms}} ms",
+  "tokPerSec": "{{value}} tok/s",
+  "tokPerSecUnknown": "? tok/s",
+  "totalSec": "{{value}} s"
+}

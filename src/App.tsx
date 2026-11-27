@@ -44,6 +44,7 @@ import {
   ExpandIcon,
   KeyIcon,
   DiskIcon,
+  ChatIcon,
 } from "./components/ui/icons";
 import { ConnectionBanner } from "./components/ui/ConnectionBanner";
 import { ErrorBanner } from "./components/ui/ErrorBanner";
@@ -55,6 +56,7 @@ import {
   OVERVIEW_ID,
   TEMPS_ID,
   TOKENS_ID,
+  CHAT_ID,
   COST_ID,
   KIOSK_ID,
   API_KEYS_ID,
@@ -66,6 +68,7 @@ import {
   isStaleSparkId,
 } from "./constants";
 import { TokensPage } from "./components/TokensPage/TokensPage";
+import { ChatPage } from "./components/ChatPage/ChatPage";
 import { CostPage } from "./components/CostPage/CostPage";
 import { ApiKeysPage } from "./components/ApiKeysPage/ApiKeysPage";
 import { TrainingPage } from "./components/TrainingPage/TrainingPage";
@@ -500,6 +503,7 @@ function DashboardApp() {
       { id: "nav:activity", group: t("commands.goTo"), label: t("nav.activity"), hint: t("commands.page"), icon: <ListIcon className="h-4 w-4" />, keywords: "Activity events log history recent", run: () => navigate(ACTIVITY_ID) },
       { id: "nav:kiosk", group: t("commands.goTo"), label: t("nav.kiosk"), hint: t("commands.wallDisplay"), icon: <ExpandIcon className="h-4 w-4" />, keywords: "Kiosk wall tv display fullscreen full screen", run: () => window.location.assign(idToPath(KIOSK_ID)) },
       { id: "nav:storage", group: t("commands.goTo"), label: t("nav.storageManager"), hint: t("commands.page"), icon: <DiskIcon className="h-4 w-4" />, keywords: "storage disk space folders files docker images delete clean cleanup du", run: () => navigate(STORAGE_ID) },
+      { id: "nav:chat", group: t("commands.goTo"), label: t("nav.chat"), hint: t("commands.page"), icon: <ChatIcon className="h-4 w-4" />, keywords: "Chat llm message test reply", run: () => navigate(CHAT_ID) },
     );
     for (const s of displaySparks) {
       cmds.push({
@@ -606,7 +610,9 @@ function DashboardApp() {
             />
             <ErrorBanner message={actionErrorMessage} onDismiss={() => setActionError(null)} />
             <main key={chartTimeZone} className={telemetryStale || !connected ? "telemetry-stale" : undefined}>
-              {activeId === TOKENS_ID ? (
+              {activeId === CHAT_ID ? (
+                <ChatPage />
+              ) : activeId === TOKENS_ID ? (
                 <TokensPage sparks={displaySparks} onSelectSpark={navigate} />
               ) : activeId === COST_ID ? (
                 <CostPage />
