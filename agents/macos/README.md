@@ -132,6 +132,73 @@ The shipped file is seeded from the captain's `model-start()` shell functions
 `-27b`/`-35b`/`-flash`, the `:8200` MTPLX mux, and `tensorfold`). Copy it, edit
 it, and point `--config` at your own — the agent has no built-in engine names.
 
+## Storage categories
+
+Set `"storageCategories": true` at the top level of `runtimes.json` (default off)
+or pass `--storage-categories` (including via
+`agents/macos/install-privileged-collector.sh --storage-categories`, which also
+preserves any existing `storageCategories` setting in the installed
+`runtimes.json` on reinstall) and the agent adds an Apple-style category
+breakdown — Applications, Developer, Documents, Photos, Media, Mail, Messages,
+iCloud Drive, iOS Files, Trash — to its disk report, scanned roughly every 15
+minutes (failed scans retry after 60 seconds).
+
+Documents follows Apple's own definition ("files from your home folder that
+aren't in another category"): a residual of the target home directory minus
+Applications, Developer, Library, media folders and the Trash, so the bar
+spreads out like the System Settings storage bar instead of collapsing into a
+sliver. Directories on a different physical volume (`st_dev`) are not attributed
+to the internal volume, and when the root daemon runs on a headless machine with
+no logged-in console user (and no explicit `home` configured), internal-volume
+categories are omitted rather than scanning `/var/root`. Everything the scan
+cannot attribute stays honest as a "System Data" residual (`df` used minus the
+measured categories), so an unknown layout is never presented as measured.
+
+An object form is also supported when a host places data outside the defaults:
+
+```json
+"storageCategories": {
+  "enabled": true,
+  "home": "/Users/alice",
+  "externalVolumes": true,
+  "excludeVolumes": ["/Volumes/TimeMachine"],
+  "extraPaths": {
+    "developer": ["/opt/homebrew"],
+    "models": ["/Volumes/SSD/models"]
+  }
+}
+```
+
+External SSDs get the same treatment when enabled: every mounted local writable
+volume under `/Volumes` (real `/dev/disk*` filesystems only — network mounts,
+read-only disk images such as `.dmg` installers, and Time Machine stores
+containing `Backups.backupdb` are skipped) is scanned alongside the primary
+volume, with the same categories rooted at the mount point and `.Trashes` as
+that drive's trash. A drive that is plugged in shows a segmented bar; unplug it
+and the bar is gone; a drive without Pictures or Developer simply reports fewer
+segments.
+
+A few of those directories are TCC-protected: a daemon without **Full Disk
+Access** sees `Operation not permitted` on Documents, Desktop, Downloads, the
+Trash and the photo library. Run:
+
+```bash
+/usr/bin/python3 "/Library/Application Support/ai.onyx.sparkdash-mac-agent/sparkdash_mac_agent.py" --setup-fda
+```
+
+to locate the branded **`SparkDash Mac Agent.app`** (`ai.onyx.sparkdash-mac-agent`,
+created automatically by `install-privileged-collector.sh --storage-categories`
+with the SparkDash icon inside `/Library/Application Support/ai.onyx.sparkdash-mac-agent/`,
+or falling back to the outermost `.app` bundle / interpreter binary), check folder
+access, and open Finder + System Settings → Privacy & Security → Full Disk Access,
+or leave it off — restricted categories keep their partial lower bounds, carry a
+`restricted` flag, and the dashboard marks them with a hatch pattern and an
+asterisk (`*`) while any unread bytes continue to appear inside the `System Data`
+residual. Launching via `SparkDash Mac Agent.app` ensures every Mac grants Full
+Disk Access to one clearly named app instead of `Xcode.app`, `Python.app`, or CLI
+shims, and preserves its code-signature hash (`cdhash`) across `sparkdash_mac_agent.py`
+updates.
+
 ## Runtime control
 
 The user agent can start and stop a catalogued runtime. It does not grow a second

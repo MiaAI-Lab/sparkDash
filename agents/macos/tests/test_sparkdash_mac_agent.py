@@ -10,6 +10,7 @@ import json
 import os
 import plistlib
 import stat
+import subprocess
 import tempfile
 import threading
 import time
@@ -709,6 +710,173 @@ class PrivilegedInstallationTests(unittest.TestCase):
                     installer.install_payload(source, dest, plist, output)
             self.assertEqual(victim.read_bytes(), b"untouched")
 
+    def test_build_plist_adds_storage_categories_flag_when_requested(self):
+        dest = Path("/Library/Application Support/sparkdash-collector")
+        without = plistlib.loads(installer.build_plist(HERE / "ai.onyx.sparkdash-mac-agent.privileged.plist", dest))
+        self.assertNotIn("--storage-categories", without["ProgramArguments"])
+        self.assertEqual(without["ProgramArguments"][0], "/usr/bin/python3")
+        with_flag = plistlib.loads(
+            installer.build_plist(
+                HERE / "ai.onyx.sparkdash-mac-agent.privileged.plist",
+                dest,
+                storage_categories=True,
+                python_bin="",
+            )
+        )
+        self.assertIn("--storage-categories", with_flag["ProgramArguments"])
+        self.assertEqual(with_flag["ProgramArguments"][0], "/usr/bin/python3")
+
+    def test_resolve_privileged_python_and_build_plist_uses_python_app_for_storage_categories(self):
+        dest = Path("/Library/Application Support/sparkdash-collector")
+        xcode_py = (
+            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/"
+            "Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"
+        )
+        clt_py = (
+            "/Library/Developer/CommandLineTools/Library/Frameworks/"
+            "Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"
+        )
+        plist_bytes = installer.build_plist(
+            HERE / "ai.onyx.sparkdash-mac-agent.privileged.plist",
+            dest,
+            storage_categories=True,
+            python_bin=xcode_py,
+        )
+        parsed = plistlib.loads(plist_bytes)
+        self.assertEqual(parsed["ProgramArguments"][0], xcode_py)
+        self.assertIn("--storage-categories", parsed["ProgramArguments"])
+
+        def make_lstat(overrides):
+            def _lstat(path_obj):
+                s = str(path_obj)
+                if s in overrides:
+                    return overrides[s]
+                if s.endswith("/MacOS/Python"):
+                    return SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
+                if s == "/Applications":
+                    return SimpleNamespace(st_mode=stat.S_IFDIR | 0o775, st_uid=0)
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+            return _lstat
+
+        with patch.object(Path, "lstat", autospec=True, side_effect=make_lstat({})), \
+             patch.object(installer.os.path, "realpath", side_effect=lambda p: p):
+            self.assertEqual(installer.resolve_privileged_python(xcode_py), xcode_py)
+            self.assertEqual(installer.resolve_privileged_python(clt_py), clt_py)
+            # Non-.app binary must be rejected.
+            self.assertIsNone(installer.resolve_privileged_python("/opt/custom/bin/python3"))
+            self.assertIsNone(installer.resolve_privileged_python(""))
+            self.assertIsNone(installer.resolve_privileged_python("python3"))
+
+        # User-owned binary or parent -> rejected.
+        with patch.object(
+            Path, "lstat", autospec=True,
+            side_effect=make_lstat({xcode_py: SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=501)}),
+        ), patch.object(installer.os.path, "realpath", side_effect=lambda p: p):
+            self.assertIsNone(installer.resolve_privileged_python(xcode_py))
+
+        with patch.object(
+            Path, "lstat", autospec=True,
+            side_effect=make_lstat({"/Applications": SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=501)}),
+        ), patch.object(installer.os.path, "realpath", side_effect=lambda p: p):
+            self.assertIsNone(installer.resolve_privileged_python(xcode_py))
+
+        # World-writable ancestor above bundle -> rejected.
+        with patch.object(
+            Path, "lstat", autospec=True,
+            side_effect=make_lstat({"/Applications": SimpleNamespace(st_mode=stat.S_IFDIR | 0o777, st_uid=0)}),
+        ), patch.object(installer.os.path, "realpath", side_effect=lambda p: p):
+            self.assertIsNone(installer.resolve_privileged_python(xcode_py))
+
+        # Group-writable directory inside .app bundle -> rejected.
+        bundle_macos = str(Path(xcode_py).parent)
+        with patch.object(
+            Path, "lstat", autospec=True,
+            side_effect=make_lstat({bundle_macos: SimpleNamespace(st_mode=stat.S_IFDIR | 0o775, st_uid=0)}),
+        ), patch.object(installer.os.path, "realpath", side_effect=lambda p: p):
+            self.assertIsNone(installer.resolve_privileged_python(xcode_py))
+
+    def test_build_plist_uses_branded_app_bundle_for_storage_categories_when_enabled(self):
+        dest = Path("/Library/Application Support/sparkdash-collector")
+        bundle_plist = plistlib.loads(
+            installer.build_plist(
+                HERE / "ai.onyx.sparkdash-mac-agent.privileged.plist",
+                dest,
+                storage_categories=True,
+                use_app_bundle=True,
+            )
+        )
+        self.assertEqual(
+            bundle_plist["ProgramArguments"][0],
+            str(dest / "SparkDash Mac Agent.app" / "Contents" / "MacOS" / "SparkDash Mac Agent"),
+        )
+        self.assertIn("--storage-categories", bundle_plist["ProgramArguments"])
+
+    def test_ensure_app_bundle_compiles_signs_icons_executes_and_is_idempotent(self):
+        if not installer.can_build_app_bundle():
+            self.skipTest("macOS clang/codesign toolchain unavailable")
+        with tempfile.TemporaryDirectory(dir=HERE / "tests") as directory:
+            root = Path(directory)
+            install_dir = root / "install"
+            install_dir.mkdir()
+            icon_png = HERE.parent.parent / "public" / "icons" / "icon-512.png"
+            with patch.object(installer.os, "chown"):
+                app_path = installer.ensure_app_bundle(HERE, install_dir, icon_path=icon_png)
+                exe_path = app_path / "Contents" / "MacOS" / installer.APP_EXECUTABLE_NAME
+                info = plistlib.loads((app_path / "Contents" / "Info.plist").read_bytes())
+                self.assertEqual(info["CFBundleIdentifier"], "ai.onyx.sparkdash-mac-agent")
+                self.assertEqual(info["CFBundleName"], "SparkDash Mac Agent")
+                self.assertEqual(info["CFBundleExecutable"], "SparkDash Mac Agent")
+                if icon_png.is_file() and Path("/usr/bin/iconutil").is_file():
+                    self.assertEqual(info.get("CFBundleIconFile"), "AppIcon")
+                    self.assertTrue((app_path / "Contents" / "Resources" / "AppIcon.icns").is_file())
+                verify = subprocess.run(
+                    ["/usr/bin/codesign", "--verify", "--strict", str(app_path)],
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(verify.returncode, 0, verify.stderr)
+
+                stat_before = exe_path.stat()
+                app_again = installer.ensure_app_bundle(HERE, install_dir, icon_path=icon_png)
+                self.assertEqual(app_again, app_path)
+                stat_after = exe_path.stat()
+                self.assertEqual(stat_before.st_ino, stat_after.st_ino)
+                self.assertEqual(stat_before.st_mtime_ns, stat_after.st_mtime_ns)
+
+                run_res = subprocess.run(
+                    [str(exe_path), "-c", 'import sys; print("ok", sys.argv[1])', "hello"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertEqual(run_res.returncode, 0, run_res.stderr)
+                self.assertEqual(run_res.stdout.strip(), "ok hello")
+
+    def test_install_preserves_existing_root_owned_storage_categories_config(self):
+        with tempfile.TemporaryDirectory(dir=HERE / "tests") as directory:
+            root = Path(directory)
+            source = root / "src"
+            source.mkdir()
+            (source / "sparkdash_mac_agent.py").write_bytes(b"print('agent')\n")
+            (source / "runtimes.json").write_text(json.dumps({"runtimes": [{"name": "a"}]}), "utf-8")
+            dest = root / "installed"
+            dest.mkdir()
+            existing_cfg = {"runtimes": [], "storageCategories": {"enabled": True, "home": "/Users/alice"}}
+            (dest / "runtimes.json").write_text(json.dumps(existing_cfg), "utf-8")
+            plist = root / "candidate.plist"
+            plist.write_bytes(installer.build_plist(HERE / "ai.onyx.sparkdash-mac-agent.privileged.plist", dest))
+            output = root / "daemon.plist"
+            root_reg = SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0)
+            with patch.object(installer, "protected_directory"), \
+                 patch.object(installer.os, "chown"), \
+                 patch.object(installer.os, "fchown"), \
+                 patch.object(Path, "lstat", return_value=root_reg):
+                installer.install_payload(source, dest, plist, output)
+            installed_cfg = json.loads((dest / "runtimes.json").read_text("utf-8"))
+            self.assertEqual(installed_cfg["runtimes"], [{"name": "a"}])
+            self.assertEqual(installed_cfg["storageCategories"], {"enabled": True, "home": "/Users/alice"})
+
 
 class ThermalTests(unittest.TestCase):
     def test_last_recorded_states(self):
@@ -796,9 +964,6 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertEqual(agent.listening_sockets(), {})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 class AuthenticatedHealthTests(unittest.TestCase):
     def test_private_key_is_used_only_for_authenticated_loopback_health(self):
         import sys
@@ -831,3 +996,563 @@ class AuthenticatedHealthTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(2)
+
+
+class StorageCategoryTests(unittest.TestCase):
+    @staticmethod
+    def du_with(answers):
+        """du fake: known calls answer from the table; unknown calls report 0 KB, exit 0."""
+        return lambda paths: answers.get(tuple(paths)) or ("\n".join(f"0\t{p}" for p in paths), 0)
+
+    def test_parse_du_output_keeps_paths_with_spaces_and_skips_junk(self):
+        sizes = agent.parse_du_output("12\t/Applications\n3456\t/Users/u/Library/Mobile Documents\nnot-a-du-line\n\nab\tcd\n")
+        self.assertEqual(sizes, {"/Applications": 12, "/Users/u/Library/Mobile Documents": 3456})
+
+    def test_external_volumes_lists_local_writable_non_tm_mounts_only(self):
+        df = ("Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n"
+              "/dev/disk3s5 1 1 1 1% 512 0 0 /System/Volumes/Data\n"
+              "/dev/disk3s3 1 1 1 1% 512 0 0 /Volumes/Recovery\n"
+              "/dev/disk5s1 1 1 1 1% 512 0 0 /Volumes/ExternalSSD\n"
+              "/dev/disk5s2 1 1 1 1% 512 0 0 /Volumes/My  Space Drive\n"
+              "/dev/disk8s1 1 1 1 1% 512 0 0 /Volumes/InstallerDMG\n"
+              "/dev/disk9s1 1 1 1 1% 512 0 0 /Volumes/TimeMachine\n"
+              "smbfs//u@nas/share 1 1 1 1% 512 0 0 /Volumes/nas\n"
+              "/dev/disk6s1 1 1 1 1% 512 0 0 /Volumes/.Spotlight-V100\n"
+              "/dev/disk7s1 1 1 1 1% 512 0 0 /Volumes/Backups\n")
+        found = agent.external_volumes(
+            df,
+            exclude_volumes={"/Volumes/Backups"},
+            is_readonly=lambda m: m == "/Volumes/InstallerDMG",
+            is_timemachine=lambda m: m == "/Volumes/TimeMachine",
+        )
+        self.assertEqual(found, ["/Volumes/ExternalSSD", "/Volumes/My  Space Drive"])
+
+    def test_disk_stats_defaults_to_internal_only_and_supports_root_fallback(self):
+        df_ext = ("Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n"
+                  "/dev/disk3s5 500000000 100000000 400000000 20% 512 0 0 /System/Volumes/Data\n"
+                  "smbfs//u@nas/share 1000000000 200000000 800000000 20% 512 0 0 /Volumes/nas\n"
+                  "/dev/disk5s1 1000000000 204800000 795200000 21% 512 0 0 /Volumes/ExternalSSD\n"
+                  "/dev/disk8s1 1024000 1024000 0 100% 512 0 0 /Volumes/InstallerDMG\n"
+                  "/dev/disk3s3 1 1 1 1% 512 0 0 /Volumes/Recovery\n")
+        cmds = []
+        def fake_run(cmd, timeout=1):
+            cmds.append(cmd)
+            return df_ext
+        with patch.object(agent, "run", side_effect=fake_run):
+            default_disks = agent.disk_stats()
+            self.assertEqual(cmds[-1], ["df", "-kl"])
+            self.assertEqual([d["label"] for d in default_disks], ["/System/Volumes/Data"])
+
+            with_ext = agent.disk_stats(
+                include_external=True,
+                is_readonly=lambda m: m == "/Volumes/InstallerDMG",
+                is_timemachine=lambda m: False,
+            )
+            self.assertEqual([d["label"] for d in with_ext], ["/System/Volumes/Data", "/Volumes/ExternalSSD"])
+            self.assertEqual(with_ext[1]["device"], "disk5s1")
+            self.assertEqual(with_ext[1]["used"], 200000)
+
+        df_root_only = ("Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n"
+                        "/dev/disk1s1 200000000 50000000 150000000 25% 512 0 0 /\n")
+        with patch.object(agent, "run", return_value=df_root_only):
+            root_disks = agent.disk_stats()
+            self.assertEqual([d["label"] for d in root_disks], ["/"])
+
+    def test_internal_volume_documents_residual_scans_top_level_and_excludes_apps_developer(self):
+        home = "/Users/alice"
+        top_entries = [
+            f"{home}/Applications",
+            f"{home}/Developer",
+            f"{home}/Library",
+            f"{home}/Pictures",
+            f"{home}/Music",
+            f"{home}/Movies",
+            f"{home}/.Trash",
+            f"{home}/Documents",
+            f"{home}/Projects",
+        ]
+        answers = {
+            (f"{home}/Documents", f"{home}/Projects"): (
+                f"12000\t{home}/Documents\n30000\t{home}/Projects\n", 0),
+        }
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value=home):
+            cats = agent._scan_volume_categories(
+                "/System/Volumes/Data",
+                dir_state=lambda p: "ok" if p.startswith(home) else "missing",
+                du_runner=StorageCategoryTests.du_with(answers),
+                list_dir=lambda base: top_entries if base == home else [],
+                path_dev=lambda p: 1,
+            )
+        docs = next(c for c in cats if c["id"] == "documents")
+        self.assertEqual(docs, {"id": "documents", "megabytes": 41})
+
+    def test_internal_volume_documents_residual_omitted_when_home_unreadable(self):
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value="/Users/alice"):
+            cats = agent._scan_volume_categories(
+                "/System/Volumes/Data",
+                dir_state=lambda p: "denied",
+                du_runner=lambda paths: ("", 1),
+                path_dev=lambda p: 1,
+            )
+        self.assertEqual([c for c in cats if c["id"] == "documents"], [])
+
+    def test_external_volume_denied_root_emits_restricted_documents(self):
+        m = "/Volumes/SSD"
+        cats_denied = agent._scan_volume_categories(
+            m,
+            dir_state=lambda p: "denied" if p == m else "missing",
+            du_runner=lambda paths: ("", 1),
+            path_dev=lambda p: 2,
+        )
+        self.assertEqual(cats_denied, [{"id": "documents", "megabytes": 0, "restricted": True}])
+
+        cats_missing = agent._scan_volume_categories(
+            m,
+            dir_state=lambda p: "missing",
+            du_runner=lambda paths: ("", 0),
+            path_dev=lambda p: 2,
+        )
+        self.assertEqual(cats_missing, [])
+
+    def test_external_volume_categories_root_at_the_mount_point_without_double_counting(self):
+        m = "/Volumes/SSD"
+        existing = {m + "/Applications", m + "/Developer", m + "/.Trashes", m, m + "/Library", m + "/Projects"}
+        answers = {
+            (m + "/Applications",): (f"12000\t{m}/Applications\n", 0),
+            (m + "/Developer",): (f"8000\t{m}/Developer\n", 0),
+            (m + "/.Trashes",): (f"800\t{m}/.Trashes\n", 0),
+            (m + "/Projects",): (f"69200\t{m}/Projects\n", 0),
+        }
+        cats = agent._scan_volume_categories(
+            m,
+            dir_state=lambda p: "ok" if p in existing else "missing",
+            du_runner=StorageCategoryTests.du_with(answers),
+            list_dir=lambda base: [
+                f"{m}/Applications", f"{m}/Developer", f"{m}/Library",
+                f"{m}/.Trashes", f"{m}/.Spotlight-V100", f"{m}/Projects",
+            ],
+            path_dev=lambda p: 2,
+        )
+        # Applications (12000), Developer (8000), Library, .Trashes (800), and .Spotlight-V100
+        # are excluded from Documents -> only Projects (69200 KB ~= 68 MB) counts in Documents.
+        self.assertEqual(cats, [
+            {"id": "applications", "megabytes": 12},
+            {"id": "developer", "megabytes": 8},
+            {"id": "documents", "megabytes": 68},
+            {"id": "trash", "megabytes": 1},
+        ])
+
+    def test_external_denied_directory_marks_category_restricted(self):
+        m = "/Volumes/SSD"
+        state = lambda p: "denied" if p == m + "/Pictures" else "ok"
+        du = lambda paths: (f"12000\t{m}/Applications\n", 1)
+        cats = agent._scan_volume_categories(
+            m,
+            dir_state=state,
+            du_runner=du,
+            list_dir=lambda base: [f"{m}/Applications", f"{m}/Pictures", f"{m}/Data"],
+            path_dev=lambda p: 2,
+        )
+        self.assertEqual(next(c for c in cats if c["id"] == "photos"),
+                         {"id": "photos", "megabytes": 0, "restricted": True})
+
+    def test_external_du_silently_skipping_readable_dir_restricts_it(self):
+        m = "/Volumes/SSD"
+        answers = {
+            (m + "/Applications",): (f"12000\t{m}/Applications\n", 0),
+            (m + "/.Trashes",): ("", 0),
+            (m + "/Data",): (f"40000\t{m}/Data\n", 0),
+        }
+        cats = agent._scan_volume_categories(
+            m,
+            dir_state=lambda p: "ok",
+            du_runner=StorageCategoryTests.du_with(answers),
+            list_dir=lambda base: [f"{m}/Applications", f"{m}/Library", f"{m}/.Trashes", f"{m}/Data"],
+            path_dev=lambda p: 2,
+        )
+        self.assertTrue(next(c for c in cats if c["id"] == "trash")["restricted"])
+
+    def test_real_chmod_000_directory_is_denied_and_marks_documents_restricted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            denied = os.path.join(tmp, "Documents")
+            readable = os.path.join(tmp, "Projects")
+            os.makedirs(denied)
+            os.makedirs(readable)
+            with open(os.path.join(readable, "a.bin"), "wb") as handle:
+                handle.write(b"x" * (1024 * 1024))
+            os.chmod(denied, 0o000)
+            try:
+                if os.geteuid() != 0:
+                    self.assertEqual(agent._dir_state(denied), "denied")
+                    self.assertEqual(agent._dir_state(readable), "ok")
+                # Even when mocked as non-root or checked via du_runner, denied child sets restricted.
+                with patch.object(agent.os, "geteuid", return_value=0), \
+                     patch.object(agent, "console_user_home", return_value=tmp):
+                    cats = agent._scan_volume_categories(
+                        "/System/Volumes/Data",
+                        dir_state=(agent._dir_state if os.geteuid() != 0 else (lambda p: "denied" if p == denied else "ok")),
+                        du_runner=lambda paths: ("\n".join(f"1024\t{p}" for p in paths), 0),
+                        path_dev=lambda p: 1,
+                    )
+                docs = next(c for c in cats if c["id"] == "documents")
+                self.assertEqual(docs["restricted"], True)
+            finally:
+                os.chmod(denied, 0o700)
+
+    def test_run_du_treats_benign_file_provider_deadlock_as_ok_but_keeps_eperm_nonzero(self):
+        deadlock_proc = SimpleNamespace(
+            returncode=1,
+            communicate=lambda **kw: ("100\t/Users/alice/Drive\n", "du: /Users/alice/Drive/p: Resource deadlock avoided\n"),
+        )
+        with patch.object(agent.subprocess, "Popen", return_value=deadlock_proc):
+            out, code = agent._run_du(["/Users/alice/Drive"])
+        self.assertEqual(code, 0)
+        self.assertIn("/Users/alice/Drive", out)
+
+        eperm_proc = SimpleNamespace(
+            returncode=1,
+            communicate=lambda **kw: ("100\t/Users/alice/Documents\n", "du: /Users/alice/Documents: Operation not permitted\n"),
+        )
+        with patch.object(agent.subprocess, "Popen", return_value=eperm_proc):
+            _, code = agent._run_du(["/Users/alice/Documents"])
+        self.assertEqual(code, 1)
+
+        mixed_proc = SimpleNamespace(
+            returncode=1,
+            communicate=lambda **kw: ("", "du: p1: Resource deadlock avoided\ndu: p2: Permission denied\n"),
+        )
+        with patch.object(agent.subprocess, "Popen", return_value=mixed_proc):
+            _, code = agent._run_du(["/Users/alice/Documents"])
+        self.assertEqual(code, 1)
+
+    def test_volume_with_nothing_measured_yields_no_entry(self):
+        cats = agent._scan_volume_categories(
+            "/Volumes/Empty",
+            dir_state=lambda p: "missing",
+            du_runner=lambda paths: ("", 0),
+            path_dev=lambda p: 2,
+        )
+        self.assertEqual(cats, [])
+        self.assertEqual(
+            agent.storage_category_scan(
+                volumes=["/Volumes/Empty"],
+                dir_state=lambda p: "missing",
+                du_runner=lambda paths: ("", 0),
+                path_dev=lambda p: 2,
+            ),
+            [],
+        )
+
+    def test_scan_walks_internal_and_external_volumes_and_respects_extra_paths_and_st_dev(self):
+        home = "/Users/alice"
+        m = "/Volumes/SSD"
+        cfg = agent.storage_category_config({
+            "runtimes": [],
+            "storageCategories": {
+                "enabled": True,
+                "home": home,
+                "excludeVolumes": ["/Volumes/SkipMe"],
+                "extraPaths": {
+                    "models": [f"{home}/work/models", f"{m}/models"],
+                },
+            },
+        })
+        assert cfg is not None
+        # Nested extraPath inside ~/work must be deducted from Documents (no double-count),
+        # and ~/RemoteMount on a different st_dev must not be counted on the internal volume.
+        devs = {
+            "/System/Volumes/Data": 1,
+            f"{home}": 1,
+            f"{home}/Pictures": 1,
+            f"{home}/work": 1,
+            f"{home}/work/models": 1,
+            f"{home}/RemoteMount": 99,
+            m: 2,
+            f"{m}/models": 2,
+            f"{m}/Projects": 2,
+        }
+        answers = {
+            (f"{home}/Pictures",): (f"2048\t{home}/Pictures\n", 0),
+            (f"{home}/work/models",): (f"10240\t{home}/work/models\n", 0),
+            (f"{home}/work",): (f"15360\t{home}/work\n", 0),
+            (f"{m}/models",): (f"20480\t{m}/models\n", 0),
+            (f"{m}/Projects",): (f"51200\t{m}/Projects\n", 0),
+        }
+        existing = set(devs)
+        result = agent.storage_category_scan(
+            volumes=["/System/Volumes/Data", m],
+            config=cfg,
+            dir_state=lambda p: "ok" if p in existing else "missing",
+            du_runner=StorageCategoryTests.du_with(answers),
+            list_dir=lambda base: (
+                [f"{home}/Pictures", f"{home}/work", f"{home}/RemoteMount"]
+                if base == home else [f"{m}/models", f"{m}/Projects"]
+            ),
+            path_dev=lambda p: devs.get(p),
+        )
+        self.assertEqual([entry["volume"] for entry in result], ["/System/Volumes/Data", m])
+        internal_by_id = {c["id"]: c for c in result[0]["categories"]}
+        self.assertEqual(internal_by_id["photos"]["megabytes"], 2)
+        self.assertEqual(internal_by_id["models"]["megabytes"], 10)
+        # ~/work is 15 MB total minus 10 MB nested models = 5 MB Documents
+        self.assertEqual(internal_by_id["documents"]["megabytes"], 5)
+
+        ext_by_id = {c["id"]: c for c in result[1]["categories"]}
+        self.assertEqual(ext_by_id["models"]["megabytes"], 20)
+        self.assertEqual(ext_by_id["documents"]["megabytes"], 50)
+
+    def test_storage_category_config_parses_boolean_and_object_forms(self):
+        self.assertIsNone(agent.storage_category_config({"runtimes": []}))
+        self.assertIsNone(agent.storage_category_config({"runtimes": [], "storageCategories": False}))
+        self.assertIsNone(agent.storage_category_config({"runtimes": [], "storageCategories": {"enabled": False}}))
+        cli = agent.storage_category_config({"runtimes": [], "storageCategories": {"enabled": False, "home": "/Users/bob"}}, cli_enabled=True)
+        self.assertEqual(cli["home"], "/Users/bob")
+        obj = agent.storage_category_config({
+            "runtimes": [],
+            "storageCategories": {
+                "enabled": True,
+                "externalVolumes": False,
+                "excludeVolumes": ["/Volumes/TimeMachine/"],
+                "extraPaths": {"developer": ["/opt/homebrew"]},
+            },
+        })
+        self.assertFalse(obj["external_volumes"])
+        self.assertEqual(obj["exclude_volumes"], {"/Volumes/TimeMachine"})
+        self.assertEqual(obj["extra_paths"], {"developer": ["/opt/homebrew"]})
+
+    def _snapshot_with_categories(self, storage_probe):
+        df = ("Filesystem 1024-blocks Used Available Capacity iused ifree %iused Mounted on\n"
+              "/dev/disk3s5 500000000 134227000 365773000 27% 512 0 0 /System/Volumes/Data\n"
+              "/dev/disk5s1 1000000000 204800000 795200000 21% 512 0 0 /Volumes/ExternalSSD\n")
+        original_run = agent.run
+        original_sockets = agent.listening_sockets
+        original_probe = agent.probe_reachability
+        agent.run = lambda cmd, timeout=1: df if cmd[:1] == ["df"] else ""
+        agent.listening_sockets = lambda: {}
+        agent.probe_reachability = lambda *a: []
+        try:
+            with patch.object(agent, "_is_readonly_mount", return_value=False), \
+                 patch.object(agent, "_is_timemachine_volume", return_value=False):
+                return agent.collect_snapshot(
+                    INVENTORY, allow_powermetrics=False, cpu_probe=None,
+                    storage_probe=storage_probe, procs={}, listeners={},
+                )
+        finally:
+            agent.run = original_run
+            agent.listening_sockets = original_sockets
+            agent.probe_reachability = original_probe
+
+    def test_categories_attach_to_each_volume_with_per_volume_residual(self):
+        probe = SimpleNamespace(
+            _config={"external_volumes": True, "exclude_volumes": set()},
+            sample=lambda: [
+                {"volume": "/System/Volumes/Data", "categories": [
+                    {"id": "applications", "megabytes": 12000},
+                    {"id": "trash", "megabytes": 800},
+                ]},
+                {"volume": "/Volumes/ExternalSSD", "categories": [
+                    {"id": "documents", "megabytes": 100000},
+                ]},
+            ],
+        )
+        snap = self._snapshot_with_categories(probe)
+        data = next(d for d in snap["disks"] if d["label"] == "/System/Volumes/Data")
+        external = next(d for d in snap["disks"] if d["label"] == "/Volumes/ExternalSSD")
+        self.assertEqual(data["categories"], [
+            {"id": "applications", "megabytes": 12000},
+            {"id": "trash", "megabytes": 800},
+            {"id": "systemData", "megabytes": 131081 - 12800},
+        ])
+        self.assertEqual(external["categories"], [
+            {"id": "documents", "megabytes": 100000},
+            {"id": "systemData", "megabytes": 200000 - 100000},
+        ])
+
+    def test_categories_stay_absent_and_external_disks_stay_off_without_probe(self):
+        snap = self._snapshot_with_categories(None)
+        self.assertEqual([d["label"] for d in snap["disks"]], ["/System/Volumes/Data"])
+        self.assertNotIn("categories", snap["disks"][0])
+        no_sample = SimpleNamespace(_config={"external_volumes": True}, sample=lambda: None)
+        snap = self._snapshot_with_categories(no_sample)
+        data = next(d for d in snap["disks"] if d["label"] == "/System/Volumes/Data")
+        self.assertNotIn("categories", data)
+
+    def test_started_probe_never_blocks_requests_on_the_first_du(self):
+        gate = threading.Event()
+        def slow_scan(*args, **kwargs):
+            gate.wait(2)
+            return [{"volume": "/System/Volumes/Data", "categories": [{"id": "documents", "megabytes": 1}]}]
+        probe = agent.StorageCategoryProbe(interval=60)
+        with patch.object(agent, "storage_category_scan", side_effect=slow_scan):
+            probe.start()
+            t0 = time.monotonic()
+            sample = probe.sample()
+            elapsed = time.monotonic() - t0
+            self.assertIsNone(sample)
+            self.assertLess(elapsed, 1.0)
+        gate.set()
+        for _ in range(60):
+            if probe.sample() is not None:
+                break
+            time.sleep(0.05)
+        self.assertEqual(probe.sample()[0]["volume"], "/System/Volumes/Data")
+        probe.stop()
+
+    def test_probe_retries_at_retry_interval_without_concurrent_scans(self):
+        calls = []
+        active = 0
+        overlap = False
+        done = threading.Event()
+
+        def flaky_scan(*args, **kwargs):
+            nonlocal active, overlap
+            active += 1
+            if active > 1:
+                overlap = True
+            calls.append(time.monotonic())
+            try:
+                if len(calls) == 1:
+                    raise RuntimeError("transient du error")
+                done.set()
+                return [{"volume": "/System/Volumes/Data", "categories": [{"id": "documents", "megabytes": 3}]}]
+            finally:
+                active -= 1
+
+        probe = agent.StorageCategoryProbe(interval=60.0, retry_interval=0.05)
+        with patch.object(agent, "storage_category_scan", side_effect=flaky_scan):
+            probe.start()
+            self.assertTrue(done.wait(2.0), "probe did not retry within retry_interval")
+            probe.stop()
+        self.assertFalse(overlap)
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertLess(calls[1] - calls[0], 1.0, "retry waited the full interval instead of retry_interval")
+        self.assertEqual(probe.sample()[0]["volume"], "/System/Volumes/Data")
+
+    def test_unstarted_probe_computes_inline_for_once_mode(self):
+        probe = agent.StorageCategoryProbe(interval=60)
+        with patch.object(agent, "storage_category_scan",
+                          return_value=[{"volume": "/System/Volumes/Data",
+                                         "categories": [{"id": "documents", "megabytes": 5}]}]):
+            self.assertEqual(probe.sample(), [{"volume": "/System/Volumes/Data",
+                                               "categories": [{"id": "documents", "megabytes": 5}]}])
+
+    def test_tilde_paths_expand_for_root_console_user_headless_and_non_root_agent(self):
+        fake = "/Users/consoleuser"
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value=fake):
+            self.assertEqual(agent.expand_category_path("~/Pictures"), fake + "/Pictures")
+            self.assertEqual(agent.expand_category_path("~/.Trash"), fake + "/.Trash")
+            self.assertEqual(agent.expand_category_path("/Applications"), "/Applications")
+        # Root daemon with no logged-in console user must NOT resolve ~ to /var/root.
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value=None):
+            self.assertIsNone(agent.expand_category_path("~/Pictures"))
+            self.assertEqual(
+                agent._scan_volume_categories("/System/Volumes/Data", dir_state=lambda p: "ok", du_runner=lambda p: ("", 0)),
+                [],
+            )
+        # Non-root user agent uses its own HOME rather than /dev/console.
+        with patch.object(agent.os, "geteuid", return_value=501), \
+             patch.object(agent, "console_user_home", return_value="/Users/other"), \
+             patch.dict(os.environ, {"HOME": "/Users/self"}):
+            self.assertEqual(agent.expand_category_path("~/Pictures"), "/Users/self/Pictures")
+
+    def test_internal_scan_roots_at_the_console_user_home(self):
+        fake = "/Users/consoleuser"
+        calls: list[list[str]] = []
+        def du(paths):
+            calls.append(list(paths))
+            return ("\n".join(f"0\t{p}" for p in paths), 0)
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value=fake):
+            agent._scan_volume_categories(
+                "/System/Volumes/Data",
+                dir_state=lambda p: "ok" if p == fake + "/Pictures" else "missing",
+                du_runner=du,
+                path_dev=lambda p: 1,
+            )
+        self.assertIn([fake + "/Pictures"], calls)
+
+    def test_documents_residual_restricts_when_an_entry_is_missing_from_du_output(self):
+        home = "/Users/alice"
+        answers = {
+            (f"{home}/Desktop", f"{home}/Documents"): (f"700\t{home}/Desktop\n", 0),
+        }
+        with patch.object(agent.os, "geteuid", return_value=0), \
+             patch.object(agent, "console_user_home", return_value=home):
+            cats = agent._scan_volume_categories(
+                "/System/Volumes/Data",
+                dir_state=lambda p: "ok" if p.startswith(home) else "missing",
+                du_runner=StorageCategoryTests.du_with(answers),
+                list_dir=lambda base: [f"{home}/Desktop", f"{home}/Documents"] if base == home else [],
+                path_dev=lambda p: 1,
+            )
+        self.assertEqual(next(c for c in cats if c["id"] == "documents"),
+                         {"id": "documents", "megabytes": 1, "restricted": True})
+
+    def test_resolve_fda_target_extracts_app_bundle_and_setup_fda_runs_cleanly(self):
+        with tempfile.TemporaryDirectory(dir=HERE / "tests") as directory:
+            installed = Path(directory) / agent.BRANDED_APP_BUNDLE_NAME
+            installed.mkdir()
+            self.assertEqual(agent.resolve_fda_target(installed_app=installed), str(installed))
+            missing = Path(directory) / "Absent.app"
+            with patch.object(agent, "run", return_value="/System/Python.app/Contents/MacOS/Python"):
+                self.assertEqual(agent.resolve_fda_target(installed_app=missing), "/System/Python.app")
+        app_exec = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"
+        self.assertEqual(
+            agent.resolve_fda_target(executable="/usr/bin/python3", comm=app_exec),
+            "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app",
+        )
+        xcode_exec = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python"
+        self.assertEqual(
+            agent.resolve_fda_target(executable="/usr/bin/python3", comm=xcode_exec),
+            "/Applications/Xcode.app",
+        )
+        self.assertEqual(
+            agent.resolve_fda_target(executable="/opt/custom/bin/python3", comm=""),
+            os.path.realpath("/opt/custom/bin/python3"),
+        )
+        opened = []
+        with patch.object(agent, "resolve_fda_target", return_value="/System/Python.app"), \
+             patch.object(agent, "_resolve_scan_home", return_value="/Users/alice"), \
+             patch.object(agent.sys, "platform", "darwin"), \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SSH_CONNECTION", None)
+            # open_ui=True opens Finder + Settings
+            rc = agent.setup_fda(
+                open_ui=True,
+                opener=lambda cmd, **kw: opened.append(cmd),
+                dir_state=lambda p: "denied" if p.endswith("Documents") else "ok",
+            )
+            self.assertEqual(rc, 0)
+            self.assertEqual(opened, [
+                ["open", "-R", "/System/Python.app"],
+                ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+            ])
+            # open_ui=None on darwin (non-SSH) opens even when Terminal inherits FDA ("ok" everywhere)
+            opened.clear()
+            rc_auto = agent.setup_fda(
+                open_ui=None,
+                opener=lambda cmd, **kw: opened.append(cmd),
+                dir_state=lambda p: "ok",
+            )
+            self.assertEqual(rc_auto, 0)
+            self.assertEqual(opened, [
+                ["open", "-R", "/System/Python.app"],
+                ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+            ])
+            # open_ui=False skips Finder + Settings
+            opened.clear()
+            rc_no_open = agent.setup_fda(
+                open_ui=False,
+                opener=lambda cmd, **kw: opened.append(cmd),
+                dir_state=lambda p: "denied",
+            )
+            self.assertEqual(rc_no_open, 0)
+            self.assertEqual(opened, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

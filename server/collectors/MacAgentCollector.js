@@ -120,6 +120,26 @@ function staleSnapshot(data) {
   return data?.sampleStale === true || (Number.isFinite(data?.sampleAgeSeconds) && data.sampleAgeSeconds > 30) || isUnavailable(data?.unavailable, "agent.sample");
 }
 
+/** Agent storage categories, sanitized: blank/duplicate ids and junk entries are
+ * dropped, `restricted` survives. Unknown or failed measurements must never turn
+ * into a healthy-looking zero. */
+function normalizeStorageCategories(raw) {
+  if (!Array.isArray(raw)) return null;
+  const seen = new Set();
+  const categories = [];
+  for (const item of raw) {
+    if (!item || typeof item.id !== "string") continue;
+    const id = item.id.trim();
+    if (!id || seen.has(id)) continue;
+    if (!Number.isFinite(item.megabytes) || item.megabytes < 0) continue;
+    seen.add(id);
+    categories.push(item.restricted
+      ? { id, megabytes: Math.round(item.megabytes), restricted: true }
+      : { id, megabytes: Math.round(item.megabytes) });
+  }
+  return categories.length ? categories : null;
+}
+
 function finiteTemperature(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -330,17 +350,21 @@ export class MacAgentCollector extends MacSystemCollector {
     const snapshot = await this._agentSnapshot();
     if (!snapshot) return super.collectStorage();
     const disabled = this.spark.disabledDevices || [];
-    return (Array.isArray(snapshot.disks) ? snapshot.disks : []).map((disk) => ({
-      device: disk.device,
-      label: disk.label,
-      used: disk.used ?? 0,
-      total: disk.total ?? 0,
-      available: disk.available ?? 0,
-      percentage: disk.percentage ?? 0,
-      readSpeed: 0,
-      writeSpeed: 0,
-      disabled: disabled.includes(disk.device) || disabled.includes(disk.label),
-    }));
+    return (Array.isArray(snapshot.disks) ? snapshot.disks : []).map((disk) => {
+      const categories = normalizeStorageCategories(disk.categories);
+      return {
+        device: disk.device,
+        label: disk.label,
+        used: disk.used ?? 0,
+        total: disk.total ?? 0,
+        available: disk.available ?? 0,
+        percentage: disk.percentage ?? 0,
+        readSpeed: 0,
+        writeSpeed: 0,
+        disabled: disabled.includes(disk.device) || disabled.includes(disk.label),
+        ...(categories ? { categories } : {}),
+      };
+    });
   }
 
   async collectNetwork() {

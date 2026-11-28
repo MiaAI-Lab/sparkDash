@@ -50,7 +50,7 @@ sys.exit(99)
 
 
 class PrivilegedLifecycleTests(unittest.TestCase):
-    def run_script(self, name, **scenario):
+    def run_script(self, name, args=(), **scenario):
         with tempfile.TemporaryDirectory(dir=HERE / "tests") as directory:
             root = Path(directory)
             sudo = root / "sudo"
@@ -64,7 +64,7 @@ class PrivilegedLifecycleTests(unittest.TestCase):
                 "SERVICE_TEST_SCENARIO": json.dumps(scenario),
             }
             result = subprocess.run(
-                ["sh", str(HERE / name)], env=env, capture_output=True, text=True, timeout=10,
+                ["sh", str(HERE / name), *args], env=env, capture_output=True, text=True, timeout=10,
             )
             log = root / "calls.jsonl"
             calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -145,6 +145,16 @@ class PrivilegedLifecycleTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("Privileged collector is on", result.stdout)
                 self.assertEqual(calls[-1][1:3], ["launchctl", action])
+
+    def test_install_accepts_storage_categories_flag_and_rejects_unknown_flags(self):
+        result, _calls = self.run_script(
+            "install-privileged-collector.sh", args=("--storage-categories",), prints=["absent", "loaded"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--setup-fda", result.stdout)
+        bad, bad_calls = self.run_script("install-privileged-collector.sh", args=("--unknown-flag",))
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(bad_calls, [])
 
 
 if __name__ == "__main__":

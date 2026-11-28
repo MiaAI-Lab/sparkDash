@@ -786,6 +786,75 @@
   border-radius: 99px;
   transition: width 0.3s ease-out;
 }
+/* ─── Storage categories (Apple-style segmented bar) ───── */
+/* Width via --seg-pct only, same pattern as --bar-pct above. Category hues are
+   derived from the theme palette so light and dark both stay readable. */
+.sp-storage-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+}
+.sp-storage-bar__seg,
+.sp-storage-bar__free {
+  height: 100%;
+  width: var(--seg-pct, 0%);
+}
+.sp-storage-bar__seg,
+.sp-storage-legend__dot {
+  background: color-mix(in srgb, var(--color-muted) 70%, var(--color-surface-hover));
+}
+.sp-storage-bar__seg + .sp-storage-bar__seg,
+.sp-storage-bar__seg + .sp-storage-bar__free {
+  border-left: 1px solid var(--color-surface);
+}
+.sp-storage-bar__free {
+  background: color-mix(in srgb, var(--color-surface-hover) 60%, var(--color-surface));
+}
+.sp-storage-bar__seg.is-restricted,
+.sp-storage-legend__dot.is-restricted {
+  background-image: repeating-linear-gradient(45deg, rgb(0 0 0 / 0.28) 0 2px, transparent 2px 4px);
+}
+.sp-storage-bar__seg--applications { background: color-mix(in srgb, var(--color-warning) 80%, var(--color-danger)); }
+.sp-storage-bar__seg--developer { background: color-mix(in srgb, var(--color-accent) 60%, var(--color-warning)); }
+.sp-storage-bar__seg--documents { background: var(--color-danger); }
+.sp-storage-bar__seg--photos { background: var(--color-accent); }
+.sp-storage-bar__seg--media { background: color-mix(in srgb, var(--color-danger) 35%, var(--color-info)); }
+.sp-storage-bar__seg--mail { background: var(--color-info); }
+.sp-storage-bar__seg--messages { background: color-mix(in srgb, var(--color-info) 45%, var(--color-success)); }
+.sp-storage-bar__seg--icloud-drive { background: color-mix(in srgb, var(--color-info) 65%, var(--color-surface)); }
+.sp-storage-bar__seg--ios-files { background: color-mix(in srgb, var(--color-danger) 55%, var(--color-surface)); }
+.sp-storage-bar__seg--trash { background: var(--color-success); }
+.sp-storage-bar__seg--system-data { background: color-mix(in srgb, var(--color-muted) 55%, var(--color-surface-hover)); }
+.sp-storage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+}
+.sp-storage-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+.sp-storage-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.sp-storage-legend__size {
+  font-family: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  flex-shrink: 0;
+}
+.sp-storage-legend__restricted {
+  opacity: 0.85;
+}
 .sp-lbl {
   display: flex;
   align-items: baseline;
