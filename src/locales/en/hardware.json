@@ -375,6 +375,7 @@
   "models.removeName": "Remove {{name}}",
   "models.exit": " (exit {{code}})",
   "models.serving": "Serving :{{port}}",
+  "models.servingUnclaimedHelp": "More than one model here uses this port and none is running, so the dashboard cannot tell which one is answering.",
   "models.runAsk": "Run {{script}}?",
   "models.switchAsk": "{{name}} is running. Stop it first, or run both?",
   "models.loadFailed": "Could not load models: {{error}}",

@@ -125,6 +125,32 @@ function SortableLaunch({
   );
 }
 
+/**
+ * Which launcher cards own a live endpoint. The probe knows a port, not a launcher, so launchers
+ * that share a port all see the same answer. A launcher alone on its port owns it, which includes
+ * a model started outside the dashboard. Where several share it, the running card owns it. If none
+ * is running, nobody can claim it: the port is returned in `unclaimedPorts` so the panel can show
+ * it once instead of on every card.
+ */
+export function attributeServing(
+  launchers: ReadonlyArray<Pick<LlmLauncher, "id" | "port">>,
+  statuses: Record<string, LauncherRunState>,
+  isLive: (port: number) => boolean
+): { serving: ReadonlySet<string>; unclaimedPorts: number[] } {
+  const byPort = new Map<number, string[]>();
+  for (const l of launchers) if (l.port != null) byPort.set(l.port, [...(byPort.get(l.port) ?? []), l.id]);
+  const serving = new Set<string>();
+  const unclaimedPorts: number[] = [];
+  for (const [port, ids] of byPort) {
+    if (!isLive(port)) continue;
+    const running = ids.filter((id) => statuses[id] === "running");
+    if (ids.length === 1) serving.add(ids[0]);
+    else if (running.length > 0) for (const id of running) serving.add(id);
+    else unclaimedPorts.push(port);
+  }
+  return { serving, unclaimedPorts };
+}
+
 type Confirm =
   | { kind: "stop"; id: string }
   | { kind: "remove"; id: string }
@@ -310,11 +336,18 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
   const byId = useMemo(() => new Map(launchers.map((l) => [l.id, l])), [launchers]);
   const showTerminal = Boolean(job) && termOpen;
 
+  const liveAt = (port: number | null | undefined) => {
+    const idx = port != null ? (spark.llmPorts ?? []).indexOf(port) : -1;
+    return idx >= 0 ? spark.metrics.llm?.[idx] ?? null : null;
+  };
+  const { serving: servingIds, unclaimedPorts } = attributeServing(launchers, statuses, (p) => Boolean(liveAt(p)?.available));
+
   const rows = launchers.map((l) => {
     const state = statuses[l.id] ?? "unknown";
-    const portIdx = l.port != null ? (spark.llmPorts ?? []).indexOf(l.port) : -1;
-    const live = portIdx >= 0 ? spark.metrics.llm?.[portIdx] : null;
-    const serving = Boolean(live?.available);
+    const live = liveAt(l.port);
+    const serving = servingIds.has(l.id);
+    // A live port nobody can claim says nothing about this card, so it is not called Stopped either.
+    const unclaimed = l.port != null && unclaimedPorts.includes(l.port);
     const mine = job?.launcherId === l.id;
     const pending = confirm?.id === l.id ? confirm : null;
     const other = pending?.kind === "switch" ? byId.get(pending.otherId) : null;
@@ -333,7 +366,7 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
               <Tag tone="info" title={t("models.scriptRunning")}>
                 {t("models.running")}
               </Tag>
-            ) : state === "stopped" ? (
+            ) : state === "stopped" && !unclaimed ? (
               <Tag>{t("models.stopped")}</Tag>
             ) : null}
           </div>
@@ -470,6 +503,15 @@ function LlmModelsPanelFor({ spark, className }: { spark: SparkSnapshot; classNa
             {t("models.loadFailed", { error: loadError })}
           </p>
         ) : null}
+        {unclaimedPorts.map((port) => {
+          const modelId = liveAt(port)?.modelId;
+          return (
+            <p key={port} className="sp-models__hint" title={t("models.servingUnclaimedHelp")}>
+              {t("models.serving", { port })}
+              {modelId ? ` · ${modelId}` : ""}
+            </p>
+          );
+        })}
         {loaded && !loadError && launchers.length === 0 ? (
           <div className="sp-models__empty">
             <p>

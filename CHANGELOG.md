@@ -19,6 +19,7 @@ Format: version sections are listed newest first.
 
 ### Fixed
 - llama-swap: the probe of the engine behind a llama-swap no longer follows a second llama-swap, so two instances whose `/running` point at each other cannot build probes without end.
+- **The Models panel no longer marks every model on a shared port as Serving.** The probe answers per port, so launchers sharing one all showed the same "Serving :port" tag and live model id. A launcher alone on its port is unchanged. Where several share one, only the running card carries the tag and the live model; if none is running, the port is shown once above the list and the cards stay plain (and are not called Stopped).
 
 ### Security
 - Bump body-parser to 2.4.0, qs to 6.17.1 and undici to 8.13.1 (lockfile only, same major versions). Thanks @maxazcona (#431).
