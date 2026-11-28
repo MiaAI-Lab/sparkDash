@@ -375,6 +375,7 @@
   "models.removeName": "移除 {{name}}",
   "models.exit": "（退出码 {{code}}）",
   "models.serving": "服务中 :{{port}}",
+  "models.servingUnclaimedHelp": "这里有多个模型使用该端口，且都未处于运行状态，因此无法判断是哪一个在响应。",
   "models.runAsk": "运行 {{script}}？",
   "models.switchAsk": "{{name}} 正在运行。先停止它，还是同时运行？",
   "models.loadFailed": "无法加载模型：{{error}}",

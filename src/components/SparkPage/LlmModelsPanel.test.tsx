@@ -30,7 +30,7 @@ import { flush, render } from "../../testing/render";
 import { terminalText } from "../ui/LiveTerminal";
 import { LlmLauncherDialog, validateLauncherForm } from "./LlmLauncherDialog";
 import { addLauncher } from "../../api/client";
-import { formatElapsed, jobHeadline as localizedJobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
+import { attributeServing, formatElapsed, jobHeadline as localizedJobHeadline, jobTone, LlmModelsPanel } from "./LlmModelsPanel";
 
 const jobHeadline = (job: LauncherJob) => localizedJobHeadline(job, i18n.getFixedT("en", "hardware"));
 
@@ -194,6 +194,97 @@ describe("starting a model while another one runs", () => {
     await flush();
     expect(runLauncher).toHaveBeenCalledTimes(1);
     expect(runLauncher).toHaveBeenCalledWith("s1", "a", "stop");
+  });
+});
+
+describe("which card is serving", () => {
+  const launcher = (id: string, name: string, port: number | null = 8000) => ({ id, name, dir: "/m", startScript: "start.sh", stopScript: "stop.sh", port, notes: "" });
+  const live = (...ports: number[]) => (p: number) => ports.includes(p);
+
+  describe("attributeServing", () => {
+    const three = [launcher("a", "A"), launcher("b", "B"), launcher("c", "C")];
+
+    it("gives a shared live port to the running card only", () => {
+      const r = attributeServing(three, { a: "stopped", b: "stopped", c: "running" }, live(8000));
+      expect([...r.serving]).toEqual(["c"]);
+      expect(r.unclaimedPorts).toEqual([]);
+    });
+
+    it("leaves a shared live port unclaimed when no card is running", () => {
+      const r = attributeServing(three, { a: "stopped", b: "stopped", c: "stopped" }, live(8000));
+      expect([...r.serving]).toEqual([]);
+      expect(r.unclaimedPorts).toEqual([8000]);
+      expect(attributeServing(three, {}, live(8000)).unclaimedPorts).toEqual([8000]);
+    });
+
+    it("keeps a launcher alone on its port serving whatever its status (a model started elsewhere)", () => {
+      const r = attributeServing([launcher("a", "A")], { a: "stopped" }, live(8000));
+      expect([...r.serving]).toEqual(["a"]);
+      expect(r.unclaimedPorts).toEqual([]);
+    });
+
+    it("says nothing about a port that is not answering", () => {
+      const r = attributeServing(three, { a: "running", b: "stopped", c: "stopped" }, live());
+      expect([...r.serving]).toEqual([]);
+      expect(r.unclaimedPorts).toEqual([]);
+    });
+
+    it("decides each port on its own and ignores launchers without a port", () => {
+      const list = [launcher("a", "A", 8000), launcher("b", "B", 8000), launcher("c", "C", 9000), launcher("d", "D", null)];
+      const r = attributeServing(list, { a: "running", b: "stopped", c: "stopped", d: "running" }, live(8000, 9000));
+      expect([...r.serving].sort()).toEqual(["a", "c"]);
+      expect(r.unclaimedPorts).toEqual([]);
+    });
+  });
+
+  describe("the panel", () => {
+    const spark = () => ({ ...makeSpark("s1"), llmPorts: [8000] });
+    const cards = (root: HTMLElement) =>
+      [...root.querySelectorAll(".sp-launch")].map((li) => ({
+        name: li.querySelector(".sp-launch__title b")?.textContent,
+        tag: li.querySelector(".sp-launch__title .tag")?.textContent ?? null,
+        text: li.textContent ?? "",
+      }));
+    const open = async (launchers: ReturnType<typeof launcher>[], statuses: Record<string, string>) => {
+      _resetLauncherCache();
+      fetchLaunchers.mockResolvedValue({ launchers, job: null, statuses });
+      const { container } = render(<LlmModelsPanel spark={spark()} />);
+      await flush();
+      return container;
+    };
+    const trio = [launcher("a", "Alpha"), launcher("b", "Beta"), launcher("c", "Gamma")];
+
+    it("shows Serving and the live model on the running card; the others are plain", async () => {
+      const container = await open(trio, { a: "stopped", b: "stopped", c: "running" });
+      const [a, b, c] = cards(container);
+      expect(c.text).toContain("Serving :8000");
+      expect(c.text).toContain("fixture-model");
+      for (const other of [a, b]) {
+        expect(other.text).not.toContain("Serving");
+        expect(other.text).not.toContain("fixture-model");
+        expect(other.tag).toBe("Stopped");
+      }
+      expect(container.querySelector(".sp-models__hint")).toBeNull();
+    });
+
+    it("shows the live port once above the list when no card can claim it", async () => {
+      const container = await open(trio, { a: "stopped", b: "stopped", c: "stopped" });
+      for (const card of cards(container)) {
+        expect(card.text).not.toContain("Serving");
+        expect(card.text).not.toContain("fixture-model");
+        expect(card.tag).toBeNull();
+      }
+      const hints = container.querySelectorAll(".sp-models__hint");
+      expect(hints).toHaveLength(1);
+      expect(hints[0].textContent).toBe("Serving :8000 \u00b7 fixture-model");
+      expect(hints[0].getAttribute("title")).toContain("cannot tell which one");
+    });
+
+    it("keeps Serving on a launcher that is alone on its port", async () => {
+      const container = await open([launcher("a", "Alpha")], { a: "stopped" });
+      expect(cards(container)[0].text).toContain("Serving :8000");
+      expect(container.querySelector(".sp-models__hint")).toBeNull();
+    });
   });
 });
 
